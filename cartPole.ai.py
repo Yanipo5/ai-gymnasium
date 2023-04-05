@@ -29,8 +29,8 @@ def calcActionProbabilities(state_array: list[float]):
 # Define the training loop and implement the Q-learning algorithm
 learning_rate = 0.15
 discount_factor = 0.99
-num_episodes = 50
-random_chance = 0.2
+num_episodes = 80
+exploration_rate = 0.5
 training_rewards = []
 
 optimizer = tf.keras.optimizers.SGD(learning_rate)
@@ -43,8 +43,8 @@ for episode in range(num_episodes):
     while not done:
         action_probs = None
         env.render()
-        # Choose action using random_chance or policy
-        if np.random.rand() < random_chance:
+        # Choose action using exploration_rate or policy
+        if np.random.rand() < exploration_rate:
             action = env.action_space.sample()
         else:
             action_probs = calcActionProbabilities(state)
