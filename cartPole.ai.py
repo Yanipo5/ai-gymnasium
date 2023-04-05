@@ -41,8 +41,9 @@ for episode in range(num_episodes):
     total_reward = 0
 
     while not done:
+        action_probs = None
         env.render()
-        # Choose action using random_chance policy
+        # Choose action using random_chance or policy
         if np.random.rand() < random_chance:
             action = env.action_space.sample()
         else:
@@ -55,11 +56,11 @@ for episode in range(num_episodes):
 
         # Update Q-values using Q-learning algorithm
         with tf.GradientTape() as tape:
-            action_probs = calcActionProbabilities(state)
+            if action_probs is None:
+                action_probs = calcActionProbabilities(state)
             q_values = tf.reduce_sum(action_probs * model.weights[-1], axis=1)
-            next_state_array = np.array(next_state)
             next_state_tensor = tf.convert_to_tensor(
-                next_state_array[np.newaxis], dtype=tf.float32)
+                [next_state], dtype=tf.float32)
             max_q_value = tf.reduce_max(model(next_state_tensor), axis=1)
             target_q = reward + discount_factor * max_q_value * (1 - int(done))
             loss = tf.reduce_mean(tf.square(q_values - target_q))
