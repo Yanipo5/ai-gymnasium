@@ -32,6 +32,12 @@ class TrainingProcess():
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.01)
     max_steps_per_episode = 500
     gamma = 0.99
+
+    def __init__(
+        self,
+        model: tf.keras.Model):
+        self.model = model
+
     def env_step(self, action: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Returns state, reward and done flag given an action."""
 
@@ -48,7 +54,6 @@ class TrainingProcess():
     def run_episode(
             self,
             initial_state: tf.Tensor,
-            model: tf.keras.Model,
             max_steps: int) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         """Runs a single episode to collect training data."""
 
@@ -65,7 +70,7 @@ class TrainingProcess():
             state = tf.expand_dims(state, 0)
 
             # Run the model and to get action probabilities and critic value
-            action_logits_t, value = model(state)
+            action_logits_t, value = self.model(state)
 
             # Sample next action from the action probability distribution
             action = tf.random.categorical(action_logits_t, 1)[0, 0]
@@ -140,15 +145,14 @@ class TrainingProcess():
     @tf.function
     def train_step(
             self,
-            initial_state: tf.Tensor,
-            model: tf.keras.Model) -> tf.Tensor:
+            initial_state: tf.Tensor) -> tf.Tensor:
         """Runs a model training step."""
 
         with tf.GradientTape() as tape:
 
             # Run the model for one episode to collect training data
             action_probs, values, rewards = self.run_episode(
-                initial_state, model, self.max_steps_per_episode)
+                initial_state, self.max_steps_per_episode)
 
             # Calculate the expected returns
             returns = self.get_expected_return(rewards, self.gamma)
@@ -161,10 +165,10 @@ class TrainingProcess():
             loss = self.compute_loss(action_probs, values, returns)
 
         # Compute the gradients from the loss
-        grads = tape.gradient(loss, model.trainable_variables)
+        grads = tape.gradient(loss, self.model.trainable_variables)
 
         # Apply the gradients to the model's parameters
-        self.optimizer.apply_gradients(zip(grads, model.trainable_variables))
+        self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
         episode_reward = tf.math.reduce_sum(rewards)
 
@@ -193,7 +197,7 @@ running_reward = 0
 # %%time
 
 model = ActorCritic(env.action_space.n)
-trainingProcess = TrainingProcess()
+trainingProcess = TrainingProcess(model)
 
 # Keep the last episodes reward
 episodes_reward: collections.deque = collections.deque(
@@ -201,9 +205,9 @@ episodes_reward: collections.deque = collections.deque(
 t = tqdm.trange(max_episodes)
 
 for i in t:
-    state, info = env.reset()
-    state = tf.constant(state, dtype=tf.float32)
-    episode_reward = int(trainingProcess.train_step(state, model))
+    initial_state, info = env.reset()
+    initial_state = tf.constant(initial_state, dtype=tf.float32)
+    episode_reward = int(trainingProcess.train_step(initial_state))
 
     episodes_reward.append(episode_reward)
     running_reward = statistics.mean(episodes_reward)
