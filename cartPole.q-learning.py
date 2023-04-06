@@ -16,7 +16,8 @@ env_shape = env.observation_space.shape
 
 model = tf.keras.Sequential([
     tf.keras.Input(shape=env_shape),
-    tf.keras.layers.Dense(env_shape[0], name="input-layer-act", activation='gelu'),
+    tf.keras.layers.Dense(128, name="input-layer-act", activation='relu'),
+    tf.keras.layers.Dense(64, name="input-layer-act-2"),
     tf.keras.layers.Dense(action_space, activation='softmax', name="output-layer")
 ])
 
@@ -25,12 +26,26 @@ def calcActionProbabilities(state_array: list[float]):
         [state_array], dtype=tf.float32)
     return model(state_tensor)
 
+@tf.function
+def train(state, model, next_state, reward, done):
+    # Update Q-values using Q-learning algorithm
+    with tf.GradientTape() as tape:
+        action_probs = calcActionProbabilities(state)
+        q_values = tf.reduce_sum(action_probs * model.weights[-1], axis=1)
+        next_state_tensor = tf.convert_to_tensor(
+            [next_state], dtype=tf.float32)
+        max_q_value = tf.reduce_max(model(next_state_tensor), axis=1)
+        target_q = reward + discount_factor * max_q_value * (1 - int(done))
+        loss = tf.reduce_mean(tf.square(q_values - target_q))
+
+    grads = tape.gradient(loss, model.trainable_variables)
+    optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
 # Define the training loop and implement the Q-learning algorithm
-learning_rate = 0.15
+learning_rate = 0.01
 discount_factor = 0.99
-num_episodes = 80
-exploration_rate = 0.5
+num_episodes = 500
+exploration_rate = 0.1
 training_rewards = []
 
 optimizer = tf.keras.optimizers.SGD(learning_rate)
@@ -54,26 +69,27 @@ for episode in range(num_episodes):
         next_state, reward, terminated, truncated, _ = env.step(action)
         done = terminated or truncated
 
-        # Update Q-values using Q-learning algorithm
-        with tf.GradientTape() as tape:
-            if action_probs is None:
-                action_probs = calcActionProbabilities(state)
-            q_values = tf.reduce_sum(action_probs * model.weights[-1], axis=1)
-            next_state_tensor = tf.convert_to_tensor(
-                [next_state], dtype=tf.float32)
-            max_q_value = tf.reduce_max(model(next_state_tensor), axis=1)
-            target_q = reward + discount_factor * max_q_value * (1 - int(done))
-            loss = tf.reduce_mean(tf.square(q_values - target_q))
+        # # Update Q-values using Q-learning algorithm
+        # with tf.GradientTape() as tape:
+        #     if action_probs is None:
+        #         action_probs = calcActionProbabilities(state)
+        #     q_values = tf.reduce_sum(action_probs * model.weights[-1], axis=1)
+        #     next_state_tensor = tf.convert_to_tensor(
+        #         [next_state], dtype=tf.float32)
+        #     max_q_value = tf.reduce_max(model(next_state_tensor), axis=1)
+        #     target_q = reward + discount_factor * max_q_value * (1 - int(done))
+        #     loss = tf.reduce_mean(tf.square(q_values - target_q))
 
-        grads = tape.gradient(loss, model.trainable_variables)
-        optimizer.apply_gradients(zip(grads, model.trainable_variables))
+        # grads = tape.gradient(loss, model.trainable_variables)
+        # optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
+        train(state=state, model=model, reward=reward, done=done, next_state=next_state)
         # Update variables
         state = next_state
         total_reward += reward
 
     training_rewards.append(total_reward)
-    print(f"Training episode {episode}: rewarded = {total_reward} (loss: {loss})")
+    print(f"Training episode {episode}: rewarded = {total_reward})")
 
 print(f"\nAverage training reward = {np.mean(training_rewards)}\n")
 
