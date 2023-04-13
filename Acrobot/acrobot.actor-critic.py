@@ -14,7 +14,7 @@ learning_rate = 0.01
 gamma = 0.99
 max_steps_per_episode = 500
 min_episodes_criterion = 100
-max_episodes = 10000
+max_episodes = 20000
 optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.SUM)
 eps = np.finfo(np.float32).eps.item()
@@ -25,11 +25,11 @@ tf.random.set_seed(seed)
 np.random.seed(seed)
 
 # `CartPole-v1` is considered solved if average reward is >= 475 over 500 consecutive trials
-reward_threshold = 475
+reward_threshold = -100
 running_reward = 0
 
 # Create the environment
-env_name = "CartPole-v1"
+env_name = "Acrobot-v1"
 render_mode = "rgb_array"
 # render_mode="human"
 env = gym.make(env_name, render_mode=render_mode)
@@ -228,6 +228,7 @@ for i in t:
         break
 
 print(f'\nSolved at episode {i}: average reward: {running_reward:.2f}!')
+# Solved at episode 3052: average reward: -98.72!
 
 steps = range(0, i+1, 1)
 plt.plot(steps, episodes_reward_stats)
