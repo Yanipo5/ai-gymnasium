@@ -8,52 +8,56 @@ if tf.config.list_physical_devices('GPU'):
 else:
     print("TensorFlow **IS NOT** using the GPU")
 
+# Hyperparameters
+seed = 42
+learning_rate = 0.01
+discount_factor = 0.99
+num_episodes = 5000
+optimizer = tf.keras.optimizers.Adam(learning_rate)
+reward_threshold = 475
+exploration_rate = 0.1
+
 # Define the environment and set up the neural network
 render_mode = "rgb_array"
 # render_mode="human"
 env = gym.make("CartPole-v1", render_mode=render_mode)
-action_space = env.action_space.n
 env_shape = env.observation_space.shape
 
 model = tf.keras.Sequential([
     tf.keras.Input(shape=env_shape),
-    tf.keras.layers.Dense(128, name="input-layer-act", activation='relu'),
-    tf.keras.layers.Dense(64, name="input-layer-act-2"),
+    tf.keras.layers.Dense(128, name="input-layer-act2", activation='relu'),
     tf.keras.layers.Dense(
-        action_space, activation='softmax', name="output-layer")
+        env.action_space.n, activation='softmax', name="output-layer")
 ])
 
 
-def calcActionProbabilities(state_array: list[float]):
-    state_tensor = tf.convert_to_tensor(
-        [state_array], dtype=tf.float32)
-    return model(state_tensor)
+def calcActionProbabilities(state: list[float, float, float, float]):
+    return model(tf.convert_to_tensor([state], dtype=tf.float32))
 
 
 @tf.function
-def train(state, model, next_state, reward, done):
-    # Update Q-values using Q-learning algorithm
+def train(state, next_state, reward, done):
     with tf.GradientTape() as tape:
-        action_probs = calcActionProbabilities(state)
-        q_values = tf.reduce_sum(action_probs * model.weights[-1], axis=1)
-        next_state_tensor = tf.convert_to_tensor(
-            [next_state], dtype=tf.float32)
-        max_q_value = tf.reduce_max(model(next_state_tensor), axis=1)
-        target_q = reward + discount_factor * max_q_value * (1 - int(done))
-        loss = tf.reduce_mean(tf.square(q_values - target_q))
+        # Compute the Q-values for the current state and action
+        q_value = calcActionProbabilities(state)
 
-    grads = tape.gradient(loss, model.trainable_variables)
-    optimizer.apply_gradients(zip(grads, model.trainable_variables))
+        # Compute the target Q-values for the next state
+        next_q_value = calcActionProbabilities(next_state)
+        max_next_q_value = tf.reduce_max(next_q_value, axis=1)
+        target = reward + discount_factor * max_next_q_value * (1 - done)
 
+        # Compute the loss and gradients
+        loss = tf.reduce_mean(tf.square(q_value - target))
+
+    gradients = tape.gradient(loss, model.trainable_variables)
+    optimizer.apply_gradients(
+        zip(gradients, model.trainable_variables))
+    return loss
 
 # Define the training loop and implement the Q-learning algorithm
-learning_rate = 0.01
-discount_factor = 0.99
-num_episodes = 500
-exploration_rate = 0.1
-training_rewards = []
 
-optimizer = tf.keras.optimizers.Adam(learning_rate)
+
+training_rewards = []
 
 t = tqdm.trange(num_episodes)
 for i in t:
@@ -61,30 +65,27 @@ for i in t:
     done = False
     total_reward = 0
 
+    # Take action and observe next state and reward
     while not done:
-        action_probs = None
-        env.render()
         # Choose action using exploration_rate or policy
         if np.random.rand() < exploration_rate:
             action = env.action_space.sample()
         else:
-            action_probs = calcActionProbabilities(state)
-            action = tf.argmax(action_probs[0]).numpy()
+            action = calcActionProbabilities(state)
+            action = tf.argmax(action[0]).numpy()
 
-        # Take action and observe next state and reward
-        next_state, reward, terminated, truncated, _ = env.step(action)
-        done = terminated or truncated
+        next_state, reward, done, truncated, _ = env.step(action)
 
-        train(state=state, model=model, reward=reward,
-              done=done, next_state=next_state)
+        loss = train(state=state, reward=reward,
+                     done=done, next_state=next_state)
         # Update variables
         state = next_state
         total_reward += reward
 
-    if (len(training_rewards) > 0):
-        t.set_postfix(total_reward_averange=np.mean(training_rewards))
-    if i % 10 == 0:
-        pass
+    if i % 10 == 0 and (len(training_rewards) > 0):
+        t.set_postfix(total_reward_averange=np.mean(
+            training_rewards), loss=loss)
+
     training_rewards.append(total_reward)
 
 print(f"\nAverage training reward = {np.mean(training_rewards)}\n")

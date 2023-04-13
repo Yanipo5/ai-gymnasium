@@ -7,6 +7,32 @@ import tqdm
 
 from typing import List, Tuple
 
+# Hyperparameters
+# Small epsilon value for stabilizing division operations
+learning_rate = 0.01
+gamma = 0.99
+max_steps_per_episode = 500
+min_episodes_criterion = 100
+max_episodes = 10000
+optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.SUM)
+eps = np.finfo(np.float32).eps.item()
+
+# Set seed for experiment reproducibility
+seed = 42
+tf.random.set_seed(seed)
+np.random.seed(seed)
+
+# `CartPole-v1` is considered solved if average reward is >= 475 over 500 consecutive trials
+reward_threshold = 475
+running_reward = 0
+
+# Create the environment
+env_name = "CartPole-v1"
+render_mode = "rgb_array"
+# render_mode="human"
+env = gym.make(env_name, render_mode=render_mode)
+
 
 class ActorCritic(tf.keras.Model):
     """Combined actor-critic network."""
@@ -19,42 +45,42 @@ class ActorCritic(tf.keras.Model):
 
         self.common = tf.keras.layers.Dense(
             num_hidden_units, activation="relu")
-        self.actor = tf.keras.layers.Dense(num_actions)
-        self.critic = tf.keras.layers.Dense(1)
-        self.name2 = "Actor-Critic-Model"
+        self.actor = tf.keras.layers.Dense(num_actions, name="actor")
+        self.critic = tf.keras.layers.Dense(1, name="critic")
 
     def call(self, inputs: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
         x = self.common(inputs)
         return self.actor(x), self.critic(x)
 
-class TrainingProcess():
-    huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.SUM)
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.01)
-    max_steps_per_episode = 500
-    gamma = 0.99
 
-    def __init__(
-        self,
-        model: tf.keras.Model):
-        self.model = model
-
-    def env_step(self, action: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+class EnvTfWrap():
+    """
+    Wrap Gym's `env.step` call as an operation in a TensorFlow function.
+    This would allow it to be included in a callable TensorFlow graph.
+    """
+    @staticmethod
+    def env_step(action: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Returns state, reward and done flag given an action."""
 
-        state, reward, done, truncated, info = env.step(action)
+        state, reward, done, truncated, info = env.step(action=action)
         return (state.astype(np.float32),
                 np.array(reward, np.int32),
                 np.array(done, np.int32))
 
-    def tf_env_step(self, action: np.ndarray) -> List[tf.Tensor]:
-        # state, reward, done, truncated, info = env.step(action)
-        # env_step : Tuple[np.ndarray, np.ndarray, np.ndarray] =  (state.astype(np.float32), np.array(reward, np.int32), np.array(done, np.int32))
-        return tf.numpy_function(self.env_step, [action], [tf.float32, tf.int32, tf.int32])
+    @staticmethod
+    def tf_env_step(action: tf.Tensor) -> List[tf.Tensor]:
+        return tf.numpy_function(EnvTfWrap.env_step, [action], [tf.float32, tf.int32, tf.int32])
+
+
+class TrainingProcess():
+    def __init__(
+            self,
+            model: tf.keras.Model):
+        self.model = model
 
     def run_episode(
             self,
-            initial_state: tf.Tensor,
-            max_steps: int) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+            initial_state: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         """Runs a single episode to collect training data."""
 
         action_probs = tf.TensorArray(
@@ -65,7 +91,7 @@ class TrainingProcess():
         initial_state_shape = initial_state.shape
         state = initial_state
 
-        for t in tf.range(max_steps):
+        for t in tf.range(max_steps_per_episode):
             # Convert state into a batched tensor (batch size = 1)
             state = tf.expand_dims(state, 0)
 
@@ -83,7 +109,7 @@ class TrainingProcess():
             action_probs = action_probs.write(t, action_probs_t[0, action])
 
             # Apply action to the environment to get next state and reward
-            state, reward, done = self.tf_env_step(action)
+            state, reward, done = EnvTfWrap.tf_env_step(action)
             state.set_shape(initial_state_shape)
 
             # Store reward
@@ -101,7 +127,6 @@ class TrainingProcess():
     def get_expected_return(
             self,
             rewards: tf.Tensor,
-            gamma: float,
             standardize: bool = True) -> tf.Tensor:
         """Compute expected returns per timestep."""
 
@@ -134,15 +159,13 @@ class TrainingProcess():
         """Computes the combined Actor-Critic loss."""
 
         advantage = returns - values
-
         action_log_probs = tf.math.log(action_probs)
         actor_loss = -tf.math.reduce_sum(action_log_probs * advantage)
-
-        critic_loss = self.huber_loss(values, returns)
+        critic_loss = huber_loss(values, returns)
 
         return actor_loss + critic_loss
 
-    @tf.function
+    @ tf.function
     def train_step(
             self,
             initial_state: tf.Tensor) -> tf.Tensor:
@@ -151,11 +174,10 @@ class TrainingProcess():
         with tf.GradientTape() as tape:
 
             # Run the model for one episode to collect training data
-            action_probs, values, rewards = self.run_episode(
-                initial_state, self.max_steps_per_episode)
+            action_probs, values, rewards = self.run_episode(initial_state)
 
             # Calculate the expected returns
-            returns = self.get_expected_return(rewards, self.gamma)
+            returns = self.get_expected_return(rewards)
 
             # Convert training data to appropriate TF tensor shapes
             action_probs, values, returns = [
@@ -168,42 +190,24 @@ class TrainingProcess():
         grads = tape.gradient(loss, self.model.trainable_variables)
 
         # Apply the gradients to the model's parameters
-        self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+        optimizer.apply_gradients(
+            zip(grads, self.model.trainable_variables))
 
-        episode_reward = tf.math.reduce_sum(rewards)
+        # episode_reward
+        return tf.math.reduce_sum(rewards)
 
-        return episode_reward
 
-# Create the environment
-render_mode = "rgb_array"
-# render_mode="human"
-env = gym.make("CartPole-v1", render_mode=render_mode)
-
-# Set seed for experiment reproducibility
-seed = 42
-tf.random.set_seed(seed)
-np.random.seed(seed)
-
-# Small epsilon value for stabilizing division operations
-eps = np.finfo(np.float32).eps.item()
-
-min_episodes_criterion = 100
-max_episodes = 10000
-
-# `CartPole-v1` is considered solved if average reward is >= 475 over 500 consecutive trials
-reward_threshold = 475
-running_reward = 0
-
-# %%time
-
+# Constract the trainins
 model = ActorCritic(env.action_space.n)
 trainingProcess = TrainingProcess(model)
 
 # Keep the last episodes reward
 episodes_reward: collections.deque = collections.deque(
     maxlen=min_episodes_criterion)
-t = tqdm.trange(max_episodes)
 
+print(
+    f'Training started for: {env_name}, target: {reward_threshold}, (last {min_episodes_criterion} runs).')
+t = tqdm.trange(max_episodes)
 for i in t:
     initial_state, info = env.reset()
     initial_state = tf.constant(initial_state, dtype=tf.float32)
@@ -212,12 +216,10 @@ for i in t:
     episodes_reward.append(episode_reward)
     running_reward = statistics.mean(episodes_reward)
 
-    t.set_postfix(
-        episode_reward=episode_reward, running_reward=running_reward)
-
     # Show the average episode reward every 10 episodes
     if i % 10 == 0:
-        pass  # print(f'Episode {i}: average reward: {avg_reward}')
+        t.set_postfix(episode_reward=episode_reward,
+                      avrange_running_reward=running_reward)
 
     if running_reward > reward_threshold and i >= min_episodes_criterion:
         break
