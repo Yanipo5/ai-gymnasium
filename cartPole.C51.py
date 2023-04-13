@@ -1,42 +1,18 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# import base64
-# import imageio
-# import IPython
-# import matplotlib
 import matplotlib.pyplot as plt
-# import PIL.Image
-# import pyvirtualdisplay
 import tqdm
 
 import tensorflow as tf
 
 from tf_agents.agents.categorical_dqn import categorical_dqn_agent
-# from tf_agents.drivers import dynamic_step_driver
 from tf_agents.environments import suite_gym
 from tf_agents.environments import tf_py_environment
-# from tf_agents.eval import metric_utils
-# from tf_agents.metrics import tf_metrics
 from tf_agents.networks import categorical_q_network
 from tf_agents.policies import random_tf_policy
 from tf_agents.replay_buffers import tf_uniform_replay_buffer
 from tf_agents.trajectories import trajectory
 from tf_agents.utils import common
 
-# Set up a virtual display for rendering OpenAI gym environments.
-# display = pyvirtualdisplay.Display(visible=0, size=(1400, 900)).start()
-
-env_name = "CartPole-v1"  # @param {type:"string"}
-num_iterations = 15000  # @param {type:"integer"}
-
-initial_collect_steps = 1000  # @param {type:"integer"}
-collect_steps_per_iteration = 1  # @param {type:"integer"}
-replay_buffer_capacity = 100000  # @param {type:"integer"}
-
-fc_layer_params = (100,)
-
+# Hyperparameters
 batch_size = 64  # @param {type:"integer"}
 learning_rate = 1e-3  # @param {type:"number"}
 gamma = 0.99
@@ -46,16 +22,25 @@ min_q_value = -20  # @param {type:"integer"}
 max_q_value = 20  # @param {type:"integer"}
 n_step_update = 2  # @param {type:"integer"}
 
+num_iterations = 15000  # @param {type:"integer"}
+
+initial_collect_steps = 1000  # @param {type:"integer"}
+collect_steps_per_iteration = 1  # @param {type:"integer"}
+replay_buffer_capacity = 100000  # @param {type:"integer"}
+fc_layer_params = (100,)
+
+reward_threshold = 195
+
 num_eval_episodes = 10  # @param {type:"integer"}
 eval_interval = 200  # @param {type:"integer"}
 
+env_name = "CartPole-v1"  # @param {type:"string"}
+
 train_py_env = suite_gym.load(env_name)
 eval_py_env = suite_gym.load(env_name)
-reward_threshold = 195
 
 train_env = tf_py_environment.TFPyEnvironment(train_py_env)
 eval_env = tf_py_environment.TFPyEnvironment(eval_py_env)
-
 
 categorical_q_net = categorical_q_network.CategoricalQNetwork(
     train_env.observation_spec(),
@@ -104,11 +89,6 @@ def compute_avg_return(environment, policy, num_episodes=10):
 random_policy = random_tf_policy.RandomTFPolicy(train_env.time_step_spec(),
                                                 train_env.action_spec())
 
-compute_avg_return(eval_env, random_policy, num_eval_episodes)
-
-# Please also see the metrics module for standard implementations of different
-# metrics.
-
 # @test {"skip": true}
 replay_buffer = tf_uniform_replay_buffer.TFUniformReplayBuffer(
     data_spec=agent.collect_data_spec,
@@ -148,9 +128,6 @@ agent.train = common.function(agent.train)
 # Reset the train step
 agent.train_step_counter.assign(0)
 
-# Evaluate the agent's policy once before training.
-# avg_return = compute_avg_return(eval_env, agent.policy, num_eval_episodes)
-# returns = [avg_return]
 avg_return = 0
 returns = []
 
@@ -179,10 +156,8 @@ for episode in t:
 print(f"solved in {episode} episodes (reward_threshold:{reward_threshold})")
 
 steps = range(0, episode+1, eval_interval)
-print(steps)
-print(returns)
 plt.plot(steps, returns)
 plt.ylabel('Average Return')
 plt.xlabel('Step')
-plt.ylim(top=reward_threshold * 3)
+plt.ylim(top=max(returns))
 plt.show()

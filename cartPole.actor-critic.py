@@ -4,6 +4,7 @@ import numpy as np
 import statistics
 import tensorflow as tf
 import tqdm
+import matplotlib.pyplot as plt
 
 from typing import List, Tuple
 
@@ -205,6 +206,7 @@ trainingProcess = TrainingProcess(model)
 episodes_reward: collections.deque = collections.deque(
     maxlen=min_episodes_criterion)
 
+episodes_reward_stats = []
 print(
     f'Training started for: {env_name}, target: {reward_threshold}, (last {min_episodes_criterion} runs).')
 t = tqdm.trange(max_episodes)
@@ -214,6 +216,7 @@ for i in t:
     episode_reward = int(trainingProcess.train_step(initial_state))
 
     episodes_reward.append(episode_reward)
+    episodes_reward_stats.append(episode_reward)
     running_reward = statistics.mean(episodes_reward)
 
     # Show the average episode reward every 10 episodes
@@ -225,3 +228,10 @@ for i in t:
         break
 
 print(f'\nSolved at episode {i}: average reward: {running_reward:.2f}!')
+
+steps = range(0, i+1, 1)
+plt.plot(steps, episodes_reward_stats)
+plt.ylabel('Reward')
+plt.xlabel('Episode')
+plt.ylim(top=max(episodes_reward_stats)*1.1)
+plt.show()
