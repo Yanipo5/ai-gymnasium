@@ -1,4 +1,5 @@
 import collections
+import math
 import gymnasium as gym
 import numpy as np
 import statistics
@@ -10,7 +11,7 @@ from typing import List, Tuple
 
 # Hyperparameters
 # Small epsilon value for stabilizing division operations
-learning_rate = 0.01
+learning_rate = 0.001
 gamma = 0.99
 max_steps_per_episode = 200
 min_episodes_criterion = 100
@@ -233,8 +234,12 @@ for i in t:
         break
 
 print(f'\nSolved at episode {i}: average reward: {running_reward:.2f}!')
+# Solved at episode 19999: average reward: -850.24!
 
 steps = range(0, len(episodes_reward_stats), 1)
+top = episodes_reward_stats
+top = math.copysign(1, top) * (top * 0.05) + top
+
 plt.plot(steps, episodes_reward_stats)
 plt.ylabel('Reward')
 plt.xlabel('Episode')
