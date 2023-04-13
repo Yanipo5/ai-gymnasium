@@ -9,6 +9,7 @@ from __future__ import print_function
 import matplotlib.pyplot as plt
 # import PIL.Image
 # import pyvirtualdisplay
+import tqdm
 
 import tensorflow as tf
 
@@ -39,7 +40,6 @@ fc_layer_params = (100,)
 batch_size = 64  # @param {type:"integer"}
 learning_rate = 1e-3  # @param {type:"number"}
 gamma = 0.99
-log_interval = 200  # @param {type:"integer"}
 
 num_atoms = 51  # @param {type:"integer"}
 min_q_value = -20  # @param {type:"integer"}
@@ -47,10 +47,11 @@ max_q_value = 20  # @param {type:"integer"}
 n_step_update = 2  # @param {type:"integer"}
 
 num_eval_episodes = 10  # @param {type:"integer"}
-eval_interval = 1000  # @param {type:"integer"}
+eval_interval = 200  # @param {type:"integer"}
 
 train_py_env = suite_gym.load(env_name)
 eval_py_env = suite_gym.load(env_name)
+reward_threshold = 195
 
 train_env = tf_py_environment.TFPyEnvironment(train_py_env)
 eval_env = tf_py_environment.TFPyEnvironment(eval_py_env)
@@ -91,7 +92,6 @@ def compute_avg_return(environment, policy, num_episodes=10):
         episode_return = 0.0
 
         while not time_step.is_last():
-            print(time_step.numpy())
             action_step = policy.action(time_step)
             time_step = environment.step(action_step.action)
             episode_return += time_step.reward
@@ -141,10 +141,6 @@ dataset = replay_buffer.as_dataset(
 iterator = iter(dataset)
 
 # @test {"skip": true}
-# try:
-#     %% time
-# except:
-#     pass
 
 # (Optional) Optimize by wrapping some of the code in a graph using TF function.
 agent.train = common.function(agent.train)
@@ -153,10 +149,13 @@ agent.train = common.function(agent.train)
 agent.train_step_counter.assign(0)
 
 # Evaluate the agent's policy once before training.
-avg_return = compute_avg_return(eval_env, agent.policy, num_eval_episodes)
-returns = [avg_return]
+# avg_return = compute_avg_return(eval_env, agent.policy, num_eval_episodes)
+# returns = [avg_return]
+avg_return = 0
+returns = []
 
-for _ in range(num_iterations):
+t = tqdm.trange(num_iterations)
+for episode in t:
 
     # Collect a few steps using collect_policy and save to the replay buffer.
     for _ in range(collect_steps_per_iteration):
@@ -168,19 +167,22 @@ for _ in range(num_iterations):
 
     step = agent.train_step_counter.numpy()
 
-    if step % log_interval == 0:
-        print('step = {0}: loss = {1}'.format(step, train_loss.loss))
-
     if step % eval_interval == 0:
         avg_return = compute_avg_return(
             eval_env, agent.policy, num_eval_episodes)
-        print('step = {0}: Average Return = {1:.2f}'.format(step, avg_return))
         returns.append(avg_return)
+        t.set_postfix(step=step, avg_return=avg_return)
 
-        # @test {"skip": true}
+        if avg_return > reward_threshold:
+            break
 
-steps = range(0, num_iterations + 1, eval_interval)
+print(f"solved in {episode} episodes (reward_threshold:{reward_threshold})")
+
+steps = range(0, episode+1, eval_interval)
+print(steps)
+print(returns)
 plt.plot(steps, returns)
 plt.ylabel('Average Return')
 plt.xlabel('Step')
-plt.ylim(top=550)
+plt.ylim(top=reward_threshold * 3)
+plt.show()
