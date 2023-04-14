@@ -1,5 +1,4 @@
 import collections
-import math
 import gymnasium as gym
 import numpy as np
 import statistics
@@ -7,26 +6,36 @@ import tqdm
 import matplotlib.pyplot as plt
 
 # Hyperparameters
-# Small epsilon value for stabilizing division operations
 learning_rate = 0.01
 discount_rate = 0.99
 min_episodes_criterion = 100
 max_episodes = 10000
 epsillon = 1
 epsillon_decay = 1 / max_episodes
+# `MountainCar-v0` is considered solved if average reward bigger then -200
+reward_threshold = -175
 discretize_array = [0.1, 0.01]
 
-optimazeReward = True
 # Positive multiplier is selected to encourage higher x
+optimazeReward = True
 optimazeRewardMultiplier = 2
 
 # Set seed for experiment reproducibility
 seed = 42
 np.random.seed(seed)
 
-# `MountainCar-v0` is considered solved if average reward bigger then -200
-reward_threshold = -175
 mean_reward = 0
+mean_max_x = 0
+
+# Store the last min_episodes_criterion episodes rewards & max_x
+episodes_reward: collections.deque = collections.deque(
+    maxlen=min_episodes_criterion)
+episodes_max_x: collections.deque = collections.deque(
+    maxlen=min_episodes_criterion)
+
+# Store statistics of episodes_reward and episodes_max_x
+episodes_reward_stats = []
+episodes_max_x_stats = []
 
 # Create the environment
 env_name = "MountainCar-v0"
@@ -38,11 +47,11 @@ class Qtable():
     def __init__(self, env: gym.Env):
         self.env = env
 
-        temp = (env.observation_space.high -
-                env.observation_space.low) / discretize_array
-        temp = np.round(temp, 0).astype(int) + 1
-        temp = np.append(temp, env.action_space.n)
-        self.qTable = np.zeros(temp)
+        temp_array = (env.observation_space.high -
+                      env.observation_space.low) / discretize_array
+        temp_array = np.round(temp_array, 0).astype(int) + 1
+        temp_array = np.append(temp_array, env.action_space.n)
+        self.qTable = np.zeros(temp_array)
 
     def __call__(self, state) -> int:
         ds = Qtable.discretizeState(state, self.env)
@@ -52,8 +61,9 @@ class Qtable():
         """Update the current value (Q_v_t: [state_t, action_t]) with the reward, and the expected value (Q_v_t+1) following the policy"""
         ds1 = Qtable.discretizeState(state, self.env)
         ds2 = Qtable.discretizeState(next_state, self.env)
-        optimaze_reward = Qtable.optimazeReward(reward, ds2, self.qTable)
-        delta = learning_rate*(optimaze_reward +
+        optimazed_reward = Qtable.optimazeReward(reward, ds2, self.qTable)
+        # update the (state_t, action_t) with the optimazed_reward, and the following rewards from following the policy SUM(state_t+1...n, action_t+1...n)
+        delta = learning_rate*(optimazed_reward +
                                discount_rate *
                                np.max(self.qTable[ds2[0], ds2[1]])
                                - self.qTable[ds1[0], ds1[1], action])
@@ -78,14 +88,6 @@ class Qtable():
         return discretize_next_state[0] * optimazeRewardMultiplier - (len(qTable) * optimazeRewardMultiplier + 1)
 
 
-episodes_reward_stats = []
-episodes_max_x_stats = []
-# Keep the last episodes reward
-episodes_reward: collections.deque = collections.deque(
-    maxlen=min_episodes_criterion)
-episodes_max_x: collections.deque = collections.deque(
-    maxlen=min_episodes_criterion)
-
 qLearning = Qtable(env)
 
 print(
@@ -100,7 +102,7 @@ for episode in max_episodes_tqdm:
     state, info = env.reset()
 
     # Running steps of episode
-    while done != True:
+    while done is not True:
         # epsillon-greedy policy, explore until epsillon nullifies
         if (epsillon > 0 and np.random.random() < epsillon):
             action = env.action_space.sample()
@@ -108,7 +110,7 @@ for episode in max_episodes_tqdm:
         else:
             action = qLearning(state)
 
-        # Take action, and learn
+        # Take action, train, and store update episode values
         next_state, reward, done, truncated, info = env.step(action)
         qLearning.train(state, action, reward, next_state)
         episode_reward += reward
