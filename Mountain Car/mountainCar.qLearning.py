@@ -6,15 +6,17 @@ import tqdm
 import matplotlib.pyplot as plt
 
 # Hyperparameters
-learning_rate = 0.01
+learning_rate = 0.1
 discount_rate = 0.99
 min_episodes_criterion = 100
-max_episodes = 10000
+max_episodes = 5000
 epsillon = 1
 epsillon_decay = 1 / max_episodes
 # `MountainCar-v0` is considered solved if average reward bigger then -200
-reward_threshold = -175
+reward_threshold = -170
 discretize_array = [0.1, 0.01]
+log_stats_step = 50
+demos = 7
 
 # Positive multiplier is selected to encourage higher x
 optimazeReward = True
@@ -120,16 +122,17 @@ for episode in max_episodes_tqdm:
         state = next_state
 
         # Allow for terminal states
-        if done:
+        if done or next_state[0] >= 0.6:
             qLearning.updateDone(state, action, 0)
+            done = True
 
-        if done or truncated or next_state[0] >= 0.6:
+        elif truncated:
             done = True
 
     episodes_reward.append(episode_reward)
     episodes_max_x.append(episode_max_x)
 
-    if episode % 50 == 0 and episode > 0:
+    if episode % log_stats_step == 0 and episode > 0:
         # Add statistics
         mean_reward = statistics.mean(episodes_reward)
         mean_max_x = statistics.mean(episodes_max_x)
@@ -146,7 +149,8 @@ if (mean_reward > reward_threshold):
     print(
         f'\nSolved at episode {episode}: average reward: {mean_reward:.2f}!')
 
-    steps = range(0, len(episodes_max_x_stats), 1)
+    steps = np.array(range(0, len(episodes_max_x_stats), 1))
+    steps *= log_stats_step
     plt.plot(steps, episodes_max_x_stats)
     plt.ylabel('Mean(max_x)')
     plt.xlabel('Episode')
@@ -157,18 +161,20 @@ else:
     print(f'\nNot solved las reward: {mean_reward:.2f}!')
 
 env.close()
-# 5900/25000 [01:54<06:10, 51.51it/s, avrange_running_reward=-172, episodes_max_x=0.41]
-# Solved at episode 5900: average reward: -172.17!
+#  1100/10000 [00:19<02:39, 55.67it/s, mean_max_x=0.428, mean_reward=-158]
+# Solved at episode 1100: average reward: -158.41!
 
-# Show
+# Demo
 render_mode = "human"
 env = gym.make(env_name, render_mode=render_mode)
-for i in range(10):
+for i in range(demos):
     state, info = env.reset()
     done = False
 
     while done != True:
         action = qLearning(state)
         state, reward, truncated, done, info = env.step(action)
+        if done or truncated or state[0] >= 0.6:
+            done = True
 
 env.close()
