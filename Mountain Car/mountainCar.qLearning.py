@@ -13,7 +13,7 @@ max_episodes = 5000
 epsillon = 1
 epsillon_decay = 1 / max_episodes
 # `MountainCar-v0` is considered solved if average reward bigger then -200
-reward_threshold = -170
+reward_threshold = -160
 discretize_array = [0.1, 0.01]
 log_stats_step = 50
 demos = 7
@@ -179,14 +179,26 @@ for i in range(demos):
 
 env.close()
 
-signs = ['<', '.', '>']
+signs = ['<', ',', '>']
 colors = ["red", 'grey', "blue"]
 
 for i in range(len(qLearning.qTable)):
-    x: float = i*discretize_array[0] + env.observation_space.low[0]
+    x: float = round(i*discretize_array[0] + env.observation_space.low[0], 1)
     for j in range(len(qLearning.qTable[0])):
-        y: float = j*discretize_array[1] + env.observation_space.low[1]
+        y: float = round(
+            j*discretize_array[1] + env.observation_space.low[1], 2)
+
         action: int = np.argmax(qLearning.qTable[i][j])
-        plt.plot(x, y, marker=signs[action], color=colors[action])
+        if (qLearning.qTable[i][j][action] == 0):
+            action = 1
+
+        if (x >= 0.6):
+            marker = '*'
+            color = 'orange'
+        else:
+            marker = signs[action]
+            color = colors[action]
+
+        plt.plot(x, y, marker=marker, color=color)
 
 plt.show()
