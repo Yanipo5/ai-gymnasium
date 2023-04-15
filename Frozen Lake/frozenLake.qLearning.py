@@ -10,10 +10,10 @@ import matplotlib.pyplot as plt
 # 15000/50000 [00:10<00:24, 1454.93it/s, mean_reward=0.8]
 
 # Hyperparameters
-learning_rate = 0.01
+learning_rate = 1
 discount_rate = 0.99
 min_episodes_criterion = 50
-max_episodes = 50000
+max_episodes = 80000
 epsilon = 1
 epsilon_decay = 1 / max_episodes
 reward_threshold = 0.8
@@ -21,8 +21,9 @@ log_stats_step = 500
 demos = 3
 
 # Set seed for experiment reproducibility
-is_slippery = True
+is_slippery = False
 env_name = "FrozenLake-v1"
+map_name = "8x8"
 render_mode = None
 seed = 42
 np.random.seed(seed)
@@ -37,7 +38,8 @@ episodes_reward: collections.deque = collections.deque(
 episodes_reward_stats = []
 
 # Create the environment
-env = gym.make(env_name, render_mode=render_mode, is_slippery=is_slippery)
+env = gym.make(env_name, render_mode=render_mode,
+               is_slippery=is_slippery, map_name=map_name)
 
 
 class Qtable():
@@ -68,7 +70,7 @@ class Qtable():
         signs = ['<', 'v', '>', '^']
         colors = [[0.8, 0.8, 0], 'red', 'green', "blue"]  # dark yellow
         n = len(self.qTable)
-        s = math.sqrt(n)
+        s = int(math.sqrt(n))
 
         for i in range(n):
             action: int = np.argmax(self.qTable[i])
@@ -112,7 +114,6 @@ for episode in max_episodes_tqdm:
         # epsilon-greedy policy, explore until epsilon nullifies
         if (epsilon > 0 and np.random.random() < epsilon):
             action = env.action_space.sample()
-            epsilon -= epsilon_decay
         else:
             action = qLearning(state)
 
@@ -132,6 +133,7 @@ for episode in max_episodes_tqdm:
         state = next_state
 
     episodes_reward.append(episode_reward)
+    epsilon -= epsilon_decay
 
     if episode % log_stats_step == 0 and episode > 0:
         # Add statistics
@@ -162,7 +164,8 @@ env.close()
 
 # Demo (Exploitation of the model)
 render_mode = "human"
-env = gym.make(env_name, render_mode=render_mode, is_slippery=is_slippery)
+env = gym.make(env_name, render_mode=render_mode,
+               is_slippery=is_slippery, map_name=map_name)
 for i in range(demos):
     state, info = env.reset()
     done = False

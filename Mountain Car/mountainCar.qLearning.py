@@ -140,7 +140,6 @@ for episode in max_episodes_tqdm:
         # epsilon-greedy policy, explore until epsilon nullifies
         if (epsilon > 0 and np.random.random() < epsilon):
             action = env.action_space.sample()
-            epsilon -= epsilon_decay
         else:
             action = qLearning(state)
 
@@ -160,6 +159,7 @@ for episode in max_episodes_tqdm:
 
         # Prepare for next step
         state = next_state
+        epsilon -= epsilon_decay
 
     episodes_reward.append(episode_reward)
     episodes_max_x.append(episode_max_x)
