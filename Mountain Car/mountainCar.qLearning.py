@@ -155,6 +155,7 @@ if (mean_reward > reward_threshold):
     plt.ylabel('Mean(max_x)')
     plt.xlabel('Episode')
     plt.ylim()
+    plt.title('Max X Progression')
     plt.show()
 
 else:
@@ -201,4 +202,7 @@ for i in range(len(qLearning.qTable)):
 
         plt.plot(x, y, marker=marker, color=color)
 
+plt.xlabel('X')
+plt.ylabel('Velocity')
+plt.title('State/Action Map')
 plt.show()
