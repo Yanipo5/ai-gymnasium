@@ -150,9 +150,6 @@ for episode in max_episodes_tqdm:
         episode_reward += reward
         episode_max_x = max(episode_max_x, next_state[0])
 
-        # Prepare for next step
-        state = next_state
-
         # Allow for terminal states
         if done or next_state[0] >= 0.6:
             qLearning.updateDone(state, action, 0)
@@ -160,6 +157,9 @@ for episode in max_episodes_tqdm:
 
         elif truncated:
             done = True
+
+        # Prepare for next step
+        state = next_state
 
     episodes_reward.append(episode_reward)
     episodes_max_x.append(episode_max_x)
