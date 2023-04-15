@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 learning_rate = 1
 discount_rate = 0.99
 min_episodes_criterion = 50
-max_episodes = 80000
+max_episodes = 100000
 epsilon = 1
 epsilon_decay = 1 / max_episodes
 reward_threshold = 0.8
@@ -21,7 +21,7 @@ log_stats_step = 500
 demos = 3
 
 # Set seed for experiment reproducibility
-is_slippery = False
+is_slippery = True
 env_name = "FrozenLake-v1"
 map_name = "8x8"
 render_mode = None
