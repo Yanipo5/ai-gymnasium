@@ -7,19 +7,18 @@ import tqdm
 import matplotlib.pyplot as plt
 
 # Hyperparameters
-learning_rate = 0.001
+learning_rate = 0.01
 discount_rate = 0.99
 min_episodes_criterion = 50
-max_episodes = 5000
+max_episodes = 50000
 epsilon = 1
 epsilon_decay = 1 / max_episodes
-# `MountainCar-v0` is considered solved if average reward bigger then -200
-reward_threshold = 1
+reward_threshold = 0.7
 log_stats_step = 500
 demos = 3
 
 # Set seed for experiment reproducibility
-is_slippery = False
+is_slippery = True
 env_name = "FrozenLake-v1"
 render_mode = None
 seed = 42
