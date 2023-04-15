@@ -178,3 +178,15 @@ for i in range(demos):
             done = True
 
 env.close()
+
+signs = ['<', '.', '>']
+colors = ["red", 'grey', "blue"]
+
+for i in range(len(qLearning.qTable)):
+    x: float = i*discretize_array[0] + env.observation_space.low[0]
+    for j in range(len(qLearning.qTable[0])):
+        y: float = j*discretize_array[1] + env.observation_space.low[1]
+        action: int = np.argmax(qLearning.qTable[i][j])
+        plt.plot(x, y, marker=signs[action], color=colors[action])
+
+plt.show()
