@@ -10,8 +10,8 @@ learning_rate = 0.1
 discount_rate = 0.99
 min_episodes_criterion = 100
 max_episodes = 5000
-epsillon = 1
-epsillon_decay = 1 / max_episodes
+epsilon = 1
+epsilon_decay = 1 / max_episodes
 # `MountainCar-v0` is considered solved if average reward bigger then -200
 reward_threshold = -160
 discretize_array = [0.1, 0.01]
@@ -20,7 +20,6 @@ demos = 7
 
 # Positive multiplier is selected to encourage higher x
 optimazeReward = True
-optimazeRewardMultiplier = 2
 
 # Set seed for experiment reproducibility
 seed = 42
@@ -47,6 +46,7 @@ env = gym.make(env_name, render_mode=render_mode)
 
 class Qtable():
     def __init__(self, env: gym.Env):
+        """Build empty Qtable"""
         self.env = env
 
         temp_array = (env.observation_space.high -
@@ -56,6 +56,7 @@ class Qtable():
         self.qTable = np.zeros(temp_array)
 
     def __call__(self, state) -> int:
+        """Call the model and get action"""
         ds = Qtable.discretizeState(state, self.env)
         return np.argmax(self.qTable[ds[0], ds[1]])
 
@@ -75,6 +76,37 @@ class Qtable():
         ds = Qtable.discretizeState(state, self.env)
         self.qTable[ds[0], ds[1], action] = reward
 
+    def plot(self):
+        """Plot the Qtable"""
+        signs = ['<', ',', '>']
+        colors = ["red", 'grey', "blue"]
+        max = self.env.observation_space.high[0]
+
+        for i in range(len(self.qTable)):
+            x: float = round(
+                i*discretize_array[0] + self.env.observation_space.low[0], 1)
+            for j in range(len(self.qTable[0])):
+                y: float = round(
+                    j*discretize_array[1] + self.env.observation_space.low[1], 2)
+
+                action: int = np.argmax(self.qTable[i][j])
+                if (self.qTable[i][j][action] == 0):
+                    action = 1
+
+                if (x >= max):
+                    marker = '*'
+                    color = 'orange'
+                else:
+                    marker = signs[action]
+                    color = colors[action]
+
+                plt.plot(x, y, marker=marker, color=color)
+
+        plt.xlabel('X')
+        plt.ylabel('Velocity')
+        plt.title('State/Action Map (Qtable)')
+        plt.show()
+
     @staticmethod
     def discretizeState(state, env: gym.Env):
         """Set the discrete state observetion length"""
@@ -87,7 +119,7 @@ class Qtable():
         if (optimazeReward is False):
             return reward
 
-        return discretize_next_state[0] * optimazeRewardMultiplier - (len(qTable) * optimazeRewardMultiplier + 1)
+        return discretize_next_state[0] - (len(qTable) + reward)
 
 
 qLearning = Qtable(env)
@@ -96,7 +128,7 @@ print(
     f'Training started for: {env_name}, target: {reward_threshold}, (last {min_episodes_criterion} runs).')
 max_episodes_tqdm = tqdm.trange(max_episodes)
 
-# Running an episode
+# Exploring (training episodes)
 for episode in max_episodes_tqdm:
     episode_reward = 0
     episode_max_x = env.observation_space.low[0]
@@ -105,10 +137,10 @@ for episode in max_episodes_tqdm:
 
     # Running steps of episode
     while done is not True:
-        # epsillon-greedy policy, explore until epsillon nullifies
-        if (epsillon > 0 and np.random.random() < epsillon):
+        # epsilon-greedy policy, explore until epsilon nullifies
+        if (epsilon > 0 and np.random.random() < epsilon):
             action = env.action_space.sample()
-            epsillon -= epsillon_decay
+            epsilon -= epsilon_decay
         else:
             action = qLearning(state)
 
@@ -165,7 +197,7 @@ env.close()
 #  1100/10000 [00:19<02:39, 55.67it/s, mean_max_x=0.428, mean_reward=-158]
 # Solved at episode 1100: average reward: -158.41!
 
-# Demo
+# Demo (Exploitation of the model)
 render_mode = "human"
 env = gym.make(env_name, render_mode=render_mode)
 for i in range(demos):
@@ -180,29 +212,5 @@ for i in range(demos):
 
 env.close()
 
-signs = ['<', ',', '>']
-colors = ["red", 'grey', "blue"]
-
-for i in range(len(qLearning.qTable)):
-    x: float = round(i*discretize_array[0] + env.observation_space.low[0], 1)
-    for j in range(len(qLearning.qTable[0])):
-        y: float = round(
-            j*discretize_array[1] + env.observation_space.low[1], 2)
-
-        action: int = np.argmax(qLearning.qTable[i][j])
-        if (qLearning.qTable[i][j][action] == 0):
-            action = 1
-
-        if (x >= 0.6):
-            marker = '*'
-            color = 'orange'
-        else:
-            marker = signs[action]
-            color = colors[action]
-
-        plt.plot(x, y, marker=marker, color=color)
-
-plt.xlabel('X')
-plt.ylabel('Velocity')
-plt.title('State/Action Map')
-plt.show()
+# Visualize the Qtable
+qLearning.plot()
