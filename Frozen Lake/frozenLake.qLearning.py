@@ -6,6 +6,9 @@ import statistics
 import tqdm
 import matplotlib.pyplot as plt
 
+# Solved at episode 15000: average reward: 0.80!
+# 15000/50000 [00:10<00:24, 1454.93it/s, mean_reward=0.8]
+
 # Hyperparameters
 learning_rate = 0.01
 discount_rate = 0.99
@@ -13,7 +16,7 @@ min_episodes_criterion = 50
 max_episodes = 50000
 epsilon = 1
 epsilon_decay = 1 / max_episodes
-reward_threshold = 0.7
+reward_threshold = 0.8
 log_stats_step = 500
 demos = 3
 
