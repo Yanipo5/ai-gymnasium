@@ -42,24 +42,41 @@ prev_state = np.expand_dims(prev_state, axis=0)
 prev_state = np.expand_dims(prev_state, axis=0)
 action_probs = model(prev_state)
 action = np.argmax(action_probs)
+action = 1
 
 
-i = 0
-f = 0
-while True:
-    i += 1
+def preProcess(observation):
+    cropped_observation = observation[33:-17]
+    img_resized = resize(cropped_observation,
+                         output_shape=(80, 80), anti_aliasing=True)
+    return img_resized
+
+
+i = 1
+done = False
+episode_reward = 0
+
+while done != True:
     if i % frames_to_skip != 0:
+        i += 1
         continue
+    i = 1
 
-    f += 1
     observation, reward, terminated, truncated, info = env.step(action)
-    if f >= 10:
-        cropped_observation = observation[33:-17]
-        img_resized = resize(cropped_observation,
-                             output_shape=(80, 80), anti_aliasing=True)
+    done = terminated or truncated
+    episode_reward += reward
 
-        plt.imshow(img_resized, cmap='gray')
-        plt.axis('on')
-        plt.show()
-        print(img_resized.shape)
-        break
+    img_pre_processed = preProcess(observation)
+
+    img_resized = np.expand_dims(img_pre_processed, axis=0)
+    img_resized = np.expand_dims(img_resized, axis=0)
+    action_probs = model(img_resized)
+    action = np.argmax(action_probs)
+    action = 1
+
+print(terminated, truncated, info)
+print(f"done: episode_reward={episode_reward}")
+plt.imshow(img_pre_processed, cmap='gray')
+plt.axis('on')
+plt.show()
+plt.close()
