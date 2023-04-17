@@ -24,9 +24,9 @@ model = tf.keras.Sequential([
     tf.keras.layers.ConvLSTM2D(filters2, kernel_size=(4, 4), input_shape=(
         None, 80, 80, 1), padding='same', return_sequences=True, strides=(4, 4)),
     tf.keras.layers.ConvLSTM2D(filters, kernel_size=(
-        4, 4), padding='same', return_sequences=True, strides=(4, 4)),
+        1, 1), padding='same', return_sequences=True, strides=(1, 1)),
     tf.keras.layers.ConvLSTM2D(filters2, kernel_size=(
-        4, 4), padding='same', return_sequences=False, strides=(4, 4)),
+        1, 1), padding='same', return_sequences=False, strides=(1, 1)),
 
     tf.keras.layers.Flatten(),
     tf.keras.layers.Dense(16, activation='relu'),
