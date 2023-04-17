@@ -5,10 +5,9 @@ import matplotlib.pyplot as plt
 from skimage.transform import resize
 
 # Hyperparameters
-filters = 32
-filters2 = int(filters/2)
-action_space = (4,)
-kernel_size = (2, 2)
+filters = 64
+actions = 4
+kernel_size = (4, 4)
 strides = (2, 2)
 frames_to_skip = 15
 
@@ -21,16 +20,10 @@ env = gym.make("ALE/Breakout-v5", render_mode=render_mode,
                repeat_action_probability=repeat_action_probability, obs_type=obs_type)
 
 model = tf.keras.Sequential([
-    tf.keras.layers.ConvLSTM2D(filters2, kernel_size=(4, 4), input_shape=(
-        None, 80, 80, 1), padding='same', return_sequences=True, strides=(4, 4)),
-    tf.keras.layers.ConvLSTM2D(filters, kernel_size=(
-        1, 1), padding='same', return_sequences=True, strides=(1, 1)),
-    tf.keras.layers.ConvLSTM2D(filters2, kernel_size=(
-        1, 1), padding='same', return_sequences=False, strides=(1, 1)),
-
-    tf.keras.layers.Flatten(),
-    tf.keras.layers.Dense(16, activation='relu'),
-    tf.keras.layers.Dense(4, activation='softmax', name="output-layer")
+    tf.keras.layers.ConvLSTM2D(filters, kernel_size=kernel_size, input_shape=(
+        None, 80, 80, 1), padding='same', strides=kernel_size, stateful=True, batch_size=1),
+    tf.keras.layers.Dense(filters, activation='relu'),
+    tf.keras.layers.Dense(actions, activation='softmax', name="output-layer")
 ])
 model.compile()
 model.summary()
