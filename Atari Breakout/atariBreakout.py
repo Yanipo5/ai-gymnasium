@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from skimage.transform import resize
 
 # Hyperparameters
-filters = 64
+filters = 32
 actions = 4
 kernel_size = (4, 4)
 strides = (2, 2)
@@ -23,9 +23,11 @@ env = gym.make("ALE/Breakout-v5", render_mode=render_mode,
 
 # Sequenctial-visual model, insert 2 frames at every step
 model = tf.keras.Sequential([
-    tf.keras.layers.ConvLSTM2D(filters, kernel_size=kernel_size, input_shape=(
-        2, 80, 80, 1), padding='same', strides=kernel_size),
-    tf.keras.layers.Dense(filters, activation=tf.keras.activations.relu),
+    tf.keras.layers.ConvLSTM2D(filters, kernel_size=4, input_shape=(
+        2, 80, 80, 1), padding='same', strides=4),
+    tf.keras.layers.Conv2D(filters, kernel_size=2, strides=2),
+    tf.keras.layers.Conv2D(filters*2, kernel_size=2, strides=1),
+    tf.keras.layers.Dense(filters*2, activation=tf.keras.activations.relu),
     tf.keras.layers.Dense(
         actions, activation=tf.keras.activations.softmax, name="output-layer")
 ])
