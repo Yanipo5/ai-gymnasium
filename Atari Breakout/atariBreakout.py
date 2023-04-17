@@ -1,7 +1,9 @@
 import tensorflow as tf
+
 import numpy as np
 import gymnasium as gym
 import matplotlib.pyplot as plt
+
 from skimage.transform import resize
 
 # Hyperparameters
@@ -19,23 +21,16 @@ obs_type = "grayscale"
 env = gym.make("ALE/Breakout-v5", render_mode=render_mode,
                repeat_action_probability=repeat_action_probability, obs_type=obs_type)
 
+# Sequenctial-visual model, insert 2 frames at every step
 model = tf.keras.Sequential([
     tf.keras.layers.ConvLSTM2D(filters, kernel_size=kernel_size, input_shape=(
-        None, 80, 80, 1), padding='same', strides=kernel_size, stateful=True, batch_size=1),
-    tf.keras.layers.Dense(filters, activation='relu'),
-    tf.keras.layers.Dense(actions, activation='softmax', name="output-layer")
+        2, 80, 80, 1), padding='same', strides=kernel_size),
+    tf.keras.layers.Dense(filters, activation=tf.keras.activations.relu),
+    tf.keras.layers.Dense(
+        actions, activation=tf.keras.activations.softmax, name="output-layer")
 ])
 model.compile()
 model.summary()
-
-# # Initialize the Gym environment
-init_state, _ = env.reset()
-prev_state = np.zeros((80, 80, 1))
-prev_state = np.expand_dims(prev_state, axis=0)
-prev_state = np.expand_dims(prev_state, axis=0)
-action_probs = model(prev_state)
-action = np.argmax(action_probs)
-action = 1
 
 
 def preProcess(observation):
@@ -44,6 +39,11 @@ def preProcess(observation):
                          output_shape=(80, 80), anti_aliasing=True)
     return img_resized
 
+
+# # Initialize the Gym environment
+init_state, _ = env.reset()
+prev_state = np.zeros((80, 80))
+action = 1
 
 i = 1
 done = False
@@ -55,21 +55,27 @@ while done != True:
         continue
     i = 1
 
+    # Take action
     observation, reward, terminated, truncated, info = env.step(action)
     done = terminated or truncated
     episode_reward += reward
+    next_state = preProcess(observation)
+    time_series = np.expand_dims([prev_state, next_state], axis=0)
 
-    img_pre_processed = preProcess(observation)
-
-    img_resized = np.expand_dims(img_pre_processed, axis=0)
-    img_resized = np.expand_dims(img_resized, axis=0)
-    action_probs = model(img_resized)
+    # epsilon greedy selection
+    action_probs = model(time_series)
     action = np.argmax(action_probs)
     action = 1
 
+    # Train
+
+    # prepare for next frame
+    prev_state = next_state
+
+
 print(terminated, truncated, info)
 print(f"done: episode_reward={episode_reward}")
-plt.imshow(img_pre_processed, cmap='gray')
+plt.imshow(next_state, cmap='gray')
 plt.axis('on')
 plt.show()
 plt.close()
