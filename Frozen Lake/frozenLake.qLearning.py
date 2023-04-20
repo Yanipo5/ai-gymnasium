@@ -10,13 +10,13 @@ import matplotlib.pyplot as plt
 # 15000/50000 [00:10<00:24, 1454.93it/s, mean_reward=0.8]
 
 # Hyperparameters
-learning_rate = 1
+learning_rate = 0.1
 discount_rate = 0.99
 min_episodes_criterion = 50
-max_episodes = 100000
+max_episodes = 200000
 epsilon = 1
-epsilon_decay = 1 / max_episodes
-reward_threshold = 0.8
+epsilon_decay = 1 / (max_episodes * 10)
+reward_threshold = 0.7
 log_stats_step = 500
 demos = 3
 
@@ -39,7 +39,7 @@ episodes_reward_stats = []
 
 # Create the environment
 env = gym.make(env_name, render_mode=render_mode,
-               is_slippery=is_slippery, map_name=map_name)
+               is_slippery=is_slippery, map_name=map_name, max_episode_steps=200)
 
 
 class Qtable():
@@ -93,8 +93,8 @@ class Qtable():
         plt.show()
 
     def optimaze_reward(self, reward):
-        # return 100 if reward == 1 else -1
-        return reward
+        return 200 if reward == 1 else 0
+        # return reward
 
 
 qLearning = Qtable(env)
@@ -112,7 +112,8 @@ for episode in max_episodes_tqdm:
     # Running steps of episode
     while done is not True:
         # epsilon-greedy policy, explore until epsilon nullifies
-        if (epsilon > 0 and np.random.random() < epsilon):
+        if (epsilon > 0.001 and np.random.random() < epsilon):
+            epsilon -= epsilon_decay
             action = env.action_space.sample()
         else:
             action = qLearning(state)
@@ -133,12 +134,11 @@ for episode in max_episodes_tqdm:
         state = next_state
 
     episodes_reward.append(episode_reward)
-    epsilon -= epsilon_decay
 
     if episode % log_stats_step == 0 and episode > 0:
         # Add statistics
         mean_reward = statistics.mean(episodes_reward)
-        max_episodes_tqdm.set_postfix(mean_reward=mean_reward)
+        max_episodes_tqdm.set_postfix(epsilon=epsilon, mean_reward=mean_reward)
         episodes_reward_stats.append(mean_reward)
 
         if mean_reward >= reward_threshold and episode >= min_episodes_criterion:
