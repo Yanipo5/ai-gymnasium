@@ -17,12 +17,17 @@ max_episodes = 5
 epsilon = 1
 epsilon_decay = 1 / max_episodes
 epsilon_random_episodes_len = 2
+learning_rate = 1e-3
+gamma = 0.99  # Discount factor for past rewards
+
 
 # Hyperparameters (env)
 repeat_action_probability = 0
-# render_mode = "human"
 render_mode = "rgb_array"
+# render_mode = "human"
 obs_type = "grayscale"
+# -------------------------------------------------
+
 # Make env
 env = gym.make(
     "ALE/Breakout-v5",
@@ -31,7 +36,7 @@ env = gym.make(
     obs_type=obs_type,
 )
 
-# Sequenctial-visual model, insert 2 frames at every step
+# Make Sequenctial-visual model accepts n frames sequence
 model = tf.keras.Sequential(
     [
         tf.keras.layers.ConvLSTM2D(
@@ -50,25 +55,30 @@ model = tf.keras.Sequential(
         ),
     ]
 )
-model.compile()
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate, clipnorm=1.0),
+    loss=tf.keras.losses.Huber(),
+)
 model.summary()
-
 # Training model used for training, and not for taking actions. This would allow a batch update of the model policy.
-training_model = tf.keras.models.clone_model(model)
+model_stable = tf.keras.models.clone_model(model)
 
 
 def preProcess(observation):
+    """Reduce the image center to 80x80 frame"""
     cropped_observation = observation[33:-17]
     img_resized = resize(cropped_observation, output_shape=(80, 80), anti_aliasing=True)
     return img_resized
 
 
-# # Initialize the Gym environment
+# Frames Memory
 frames_state: collections.deque = collections.deque(maxlen=frames_memory_length)
 
 max_episodes_tqdm = tqdm.trange(max_episodes)
 for episode in max_episodes_tqdm:
     init_state, _ = env.reset()
+    frames_state.clear()
+    frames_state.append(np.zeros((80, 80)))
     frames_state.append(np.zeros((80, 80)))
     i = 0
     done = False
@@ -79,23 +89,41 @@ for episode in max_episodes_tqdm:
         if i % frames_to_skip != 0:
             continue
 
-        # epsilon greedy selection
+        time_series = tf.expand_dims([frames_state[0], frames_state[1]], axis=0)
+
+        # epsilon-greedy selection
         if epsilon > 0 and np.random.random() < epsilon:
             action = env.action_space.sample()
         else:
             action_probs = model(time_series)
             action = tf.argmax(action_probs[0]).numpy()
+
         # Take action
         observation, reward, terminated, truncated, info = env.step(action)
 
-        # Train
+        # -Train
+        # Predict stable model Q-value
+        stable_q_values = model_stable(time_series)
+        expected_stable_reward = reward + gamma * tf.reduce_max(stable_q_values, axis=1)
+
+        with tf.GradientTape() as tape:
+            # Train the model with the state
+            action_probs = model(time_series)
+            q_action = tf.reduce_max(action_probs, axis=1)
+            loss = model.loss(expected_stable_reward, q_action)
+
+        # Backpropagation
+        grads = tape.gradient(loss, model.trainable_variables)
+        model.optimizer.apply_gradients(zip(grads, model.trainable_variables))
+
+        if episode > 1 and episode % 1000 == 0:
+            model_stable.set_weights(model.get_weights())
+
         done = terminated or truncated
         episode_reward += reward
-        next_state = preProcess(observation)
-        frames_state.append(next_state)
-        time_series = tf.expand_dims(frames_state, axis=0)
+        frames_state.append(preProcess(observation))
 
-    max_episodes_tqdm.set_postfix(epsilon=epsilon)
+    max_episodes_tqdm.set_postfix(epsilon=epsilon, episode_reward=episode_reward)
 
     # decay epsilon on
     epsilon -= epsilon_decay
@@ -103,9 +131,4 @@ for episode in max_episodes_tqdm:
         epsilon = 0
 
 
-print(terminated, truncated, info)
 print(f"done: episode_reward={episode_reward}")
-plt.imshow(next_state, cmap="gray")
-plt.axis("on")
-plt.show()
-plt.close()
