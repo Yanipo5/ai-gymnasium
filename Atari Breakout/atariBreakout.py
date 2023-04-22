@@ -13,10 +13,10 @@ kernel_size = (4, 4)
 strides = (2, 2)
 frames_to_skip = 15
 frames_memory_length = 2
-max_episodes = 5
+max_episodes = 10
+episodes_learning_batch = 5
 epsilon = 1
 epsilon_decay = 1 / max_episodes
-epsilon_random_episodes_len = 2
 learning_rate = 1e-3
 gamma = 0.99  # Discount factor for past rewards
 
@@ -73,6 +73,7 @@ def preProcess(observation):
 
 # Frames Memory
 frames_state: collections.deque = collections.deque(maxlen=frames_memory_length)
+total_frames = 0
 
 max_episodes_tqdm = tqdm.trange(max_episodes)
 for episode in max_episodes_tqdm:
@@ -85,6 +86,7 @@ for episode in max_episodes_tqdm:
     episode_reward = 0
 
     while done != True:
+        total_frames += 1
         i += 1
         if i % frames_to_skip != 0:
             continue
@@ -123,7 +125,13 @@ for episode in max_episodes_tqdm:
         episode_reward += reward
         frames_state.append(preProcess(observation))
 
-    max_episodes_tqdm.set_postfix(epsilon=epsilon, episode_reward=episode_reward)
+        max_episodes_tqdm.set_postfix(
+            episode=episode,
+            step=i,
+            episode_reward=episode_reward,
+            epsilon=epsilon,
+            total_frames=total_frames,
+        )
 
     # decay epsilon on
     epsilon -= epsilon_decay
