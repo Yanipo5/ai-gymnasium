@@ -7,7 +7,6 @@ import tqdm
 from skimage.transform import resize
 import atexit
 from typing import Any
-import json
 import os
 
 # Hyperparameters
@@ -28,7 +27,7 @@ gamma = 0.99  # Discount factor for past rewards
 # Env Params
 env_name = "ALE/Breakout-v5"
 render_mode = "rgb_array"
-render_mode = "human"
+# render_mode = "human"
 repeat_action_probability = 0
 obs_type = "grayscale"
 model_file_name = os.path.dirname(__file__) + "/model"
@@ -77,6 +76,7 @@ class Model(tf.keras.Sequential):
     def __call__(self, inputs, training=None, mask=None):
         return self.model(inputs)
 
+    @tf.function
     def train(self, reward, time_series: tf.Tensor):
         # Calculate expected Q value based on the stable model
         stable_action_probs = self.clone(time_series)
@@ -122,7 +122,6 @@ class FramesState(collections.deque):
 # Main
 model = Model()
 frames_state = FramesState(maxlen=frames_memory_length)
-# Make env
 env = gym.make(
     env_name,
     render_mode=render_mode,
@@ -165,7 +164,7 @@ for episode in max_episodes_tqdm:
         max_episodes_tqdm.set_postfix(
             episode=episode,
             step=step,
-            episode_reward=episode_reward,
+            reward=episode_reward,
             epsilon=epsilon,
             total_frames=total_frames,
         )
