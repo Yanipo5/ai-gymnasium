@@ -4,22 +4,22 @@ import numpy as np
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import tqdm
-from skimage.transform import resize
 import atexit
-from typing import Any
 import os
+from skimage.transform import resize
+from typing import Any
 
 # Hyperparameters
 filters = 32
 actions = 4
 kernel_size = (4, 4)
 strides = (2, 2)
-frames_to_skip = 5
+frames_to_skip = 15
 frames_memory_length = 2
-max_episodes = 25
+max_episodes = 500
 episodes_learning_batch = 5
 epsilon = 1
-epsilon_decay = 1 / (max_episodes * 0.8)
+epsilon_decay = 1 / max_episodes
 epsilon_terminal_value = 0.01
 learning_rate = 1e-3
 gamma = 0.99  # Discount factor for past rewards
@@ -121,6 +121,7 @@ class FramesState(collections.deque):
 
 # Main
 model = Model()
+model.load_weights(model_file_name)
 frames_state = FramesState(maxlen=frames_memory_length)
 env = gym.make(
     env_name,
@@ -146,7 +147,10 @@ for episode in max_episodes_tqdm:
         total_frames += 1
         step += 1
         if step % frames_to_skip != 0:
-            env.step(0)
+            observation, reward, terminated, truncated, info = env.step(1)
+            if reward > 0:
+                model.train(reward=reward, time_series=frames_state.getTensor())
+                episode_reward += reward
             continue
 
         # epsilon-greedy selection
@@ -161,14 +165,6 @@ for episode in max_episodes_tqdm:
         done = terminated or truncated
         episode_reward += reward
 
-        max_episodes_tqdm.set_postfix(
-            episode=episode,
-            step=step,
-            reward=episode_reward,
-            epsilon=epsilon,
-            total_frames=total_frames,
-        )
-
         model.train(reward=reward, time_series=frames_state.getTensor())
 
         # Prepare next step state
@@ -177,10 +173,17 @@ for episode in max_episodes_tqdm:
         if episode > 1 and episode % 1000 == 0:
             model.update_weights()
 
+    # Print post episode
     rewards.append(episode_reward)
+    max_episodes_tqdm.set_postfix(
+        episode=episode,
+        reward=episode_reward,
+        epsilon=epsilon,
+        total_frames=total_frames,
+    )
 
     # epsilon decay
-    if epsilon > 0:
+    if epsilon > 0 and total_frames > 10000:
         epsilon -= epsilon_decay
         if epsilon < epsilon_terminal_value:
             epsilon = 0
