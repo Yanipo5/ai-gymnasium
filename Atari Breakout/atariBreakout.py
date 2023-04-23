@@ -7,15 +7,8 @@ import tqdm
 from skimage.transform import resize
 import atexit
 from typing import Any
-
-
-def do_something_on_exit():
-    # code to run before exit
-    print("Exiting program...")
-
-
-atexit.register(do_something_on_exit)
-
+import json
+import os
 
 # Hyperparameters
 filters = 32
@@ -28,24 +21,19 @@ max_episodes = 25
 episodes_learning_batch = 5
 epsilon = 1
 epsilon_decay = 1 / (max_episodes * 0.8)
+epsilon_terminal_value = 0.01
 learning_rate = 1e-3
 gamma = 0.99  # Discount factor for past rewards
 
-
-# Hyperparameters (env)
-repeat_action_probability = 0
+# Env Params
+env_name = "ALE/Breakout-v5"
 render_mode = "rgb_array"
-# render_mode = "human"
+render_mode = "human"
+repeat_action_probability = 0
 obs_type = "grayscale"
-# -------------------------------------------------
+model_file_name = os.path.dirname(__file__) + "/model"
 
-# Make env
-env = gym.make(
-    "ALE/Breakout-v5",
-    render_mode=render_mode,
-    repeat_action_probability=repeat_action_probability,
-    obs_type=obs_type,
-)
+# -------------------------------------------------
 
 
 class Model(tf.keras.Sequential):
@@ -88,7 +76,7 @@ class Model(tf.keras.Sequential):
 
     def __call__(self, inputs, training=None, mask=None):
         return self.model(inputs)
-    
+
     def train(self, reward, time_series: tf.Tensor):
         # Calculate expected Q value based on the stable model
         stable_action_probs = self.clone(time_series)
@@ -134,9 +122,18 @@ class FramesState(collections.deque):
 # Main
 model = Model()
 frames_state = FramesState(maxlen=frames_memory_length)
+# Make env
+env = gym.make(
+    env_name,
+    render_mode=render_mode,
+    repeat_action_probability=repeat_action_probability,
+    obs_type=obs_type,
+)
 total_frames = 0
 rewards = []
 max_episodes_tqdm = tqdm.trange(max_episodes)
+
+atexit.register(lambda: model.save_weights(model_file_name))
 
 # Training Loop (episode, frame)
 for episode in max_episodes_tqdm:
@@ -174,7 +171,7 @@ for episode in max_episodes_tqdm:
         )
 
         model.train(reward=reward, time_series=frames_state.getTensor())
-        
+
         # Prepare next step state
         frames_state.addFrame(observation)
 
@@ -183,10 +180,11 @@ for episode in max_episodes_tqdm:
 
     rewards.append(episode_reward)
 
-    # decay epsilon on
-    epsilon -= epsilon_decay
-    if epsilon < 0.01:
-        epsilon = 0
+    # epsilon decay
+    if epsilon > 0:
+        epsilon -= epsilon_decay
+        if epsilon < epsilon_terminal_value:
+            epsilon = 0
 
 
 steps = np.array(range(0, len(rewards), 1))
