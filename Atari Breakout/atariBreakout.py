@@ -8,18 +8,19 @@ import atexit
 import os
 from skimage.transform import resize
 from typing import Any
+import statistics
 
 # Hyperparameters
 filters = 32
 actions = 4
 kernel_size = (4, 4)
 strides = (2, 2)
-frames_to_skip = 15
+frames_to_skip = 4
 frames_memory_length = 2
-max_episodes = 500
-episodes_learning_batch = 5
+max_episodes = 200
+episodes_learning_batch = 64
 epsilon = 1
-epsilon_decay = 1 / max_episodes
+epsilon_decay = 1 / (max_episodes * 0.8)
 epsilon_terminal_value = 0.01
 learning_rate = 1e-3
 gamma = 0.99  # Discount factor for past rewards
@@ -27,12 +28,19 @@ gamma = 0.99  # Discount factor for past rewards
 # Env Params
 env_name = "ALE/Breakout-v5"
 render_mode = "rgb_array"
-# render_mode = "human"
 repeat_action_probability = 0
 obs_type = "grayscale"
 model_file_name = os.path.dirname(__file__) + "/model"
+train_model = True
 
-# -------------------------------------------------
+# Plot Params
+running_reward_interval = 16
+
+# Demo
+# max_episodes = 1
+# epsilon = 0
+# render_mode = "human"
+# train_model = False
 
 
 class Model(tf.keras.Sequential):
@@ -49,7 +57,7 @@ class Model(tf.keras.Sequential):
                     padding="same",
                     strides=4,
                 ),
-                tf.keras.layers.Conv2D(filters, kernel_size=2, strides=2),
+                tf.keras.layers.Conv2D(filters * 4, kernel_size=2, strides=2),
                 tf.keras.layers.Conv2D(filters * 2, kernel_size=2, strides=1),
                 tf.keras.layers.Flatten(),
                 tf.keras.layers.Dense(
@@ -120,22 +128,33 @@ class FramesState(collections.deque):
 
 
 # Main
+print("Num GPUs Available: ", len(tf.config.list_physical_devices("GPU")))
+
 model = Model()
-model.load_weights(model_file_name)
+try:
+    model.load_weights(model_file_name)
+except:
+    print("Model wasn't found in: {model_file_name}")
+
+atexit.register(lambda: model.save_weights(model_file_name))
+
 frames_state = FramesState(maxlen=frames_memory_length)
+
 env = gym.make(
     env_name,
     render_mode=render_mode,
     repeat_action_probability=repeat_action_probability,
     obs_type=obs_type,
 )
-total_frames = 0
-rewards = []
-max_episodes_tqdm = tqdm.trange(max_episodes)
 
-atexit.register(lambda: model.save_weights(model_file_name))
+total_frames = 0
+episodes_reward: collections.deque[int] = collections.deque(
+    maxlen=running_reward_interval
+)
+rewards: list[float] = []
 
 # Training Loop (episode, frame)
+max_episodes_tqdm = tqdm.trange(max_episodes)
 for episode in max_episodes_tqdm:
     env.reset()
     frames_state.reset()
@@ -165,16 +184,20 @@ for episode in max_episodes_tqdm:
         done = terminated or truncated
         episode_reward += reward
 
-        model.train(reward=reward, time_series=frames_state.getTensor())
+        if train_model:
+            model.train(reward=reward, time_series=frames_state.getTensor())
 
         # Prepare next step state
         frames_state.addFrame(observation)
 
-        if episode > 1 and episode % 1000 == 0:
+        if episode > 1 and episode % episodes_learning_batch == 0:
             model.update_weights()
 
     # Print post episode
-    rewards.append(episode_reward)
+    episodes_reward.append(int(episode_reward))
+    if episode % running_reward_interval == 0:
+        rewards.append(statistics.mean(episodes_reward))
+
     max_episodes_tqdm.set_postfix(
         episode=episode,
         reward=episode_reward,
@@ -188,7 +211,7 @@ for episode in max_episodes_tqdm:
         if epsilon < epsilon_terminal_value:
             epsilon = 0
 
-
+# Plot Rewards Progression
 steps = np.array(range(0, len(rewards), 1))
 plt.plot(steps, rewards)
 plt.ylabel("Reward")
