@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 import tqdm
 import atexit
 import os
+import statistics
 from skimage.transform import resize
 from typing import Any
-import statistics
 
 # Hyperparameters
 filters = 32
@@ -17,7 +17,7 @@ kernel_size = (4, 4)
 strides = (2, 2)
 frames_to_skip = 4
 frames_memory_length = 2
-max_episodes = 200
+max_episodes = 5000
 episodes_learning_batch = 64
 epsilon = 1
 epsilon_decay = 1 / (max_episodes * 0.8)
@@ -37,10 +37,12 @@ train_model = True
 running_reward_interval = 16
 
 # Demo
-# max_episodes = 1
-# epsilon = 0
+max_episodes = 30
+epsilon = 0
 # render_mode = "human"
-# train_model = False
+train_model = False
+load_weights = False
+save_weights = False
 
 
 class Model(tf.keras.Sequential):
@@ -52,28 +54,34 @@ class Model(tf.keras.Sequential):
             [
                 tf.keras.layers.ConvLSTM2D(
                     filters,
-                    kernel_size=4,
+                    kernel_size=8,
                     input_shape=(2, 80, 80, 1),
                     padding="same",
                     strides=4,
                 ),
-                tf.keras.layers.Conv2D(filters * 4, kernel_size=2, strides=2),
-                tf.keras.layers.Conv2D(filters * 2, kernel_size=2, strides=1),
-                tf.keras.layers.Flatten(),
-                tf.keras.layers.Dense(
-                    filters * 2, activation=tf.keras.activations.relu
+                tf.keras.layers.Conv2D(
+                    filters,
+                    kernel_size=4,
+                    strides=2,
+                    activation=tf.keras.activations.relu,
                 ),
+                tf.keras.layers.Conv2D(
+                    filters,
+                    kernel_size=3,
+                    strides=1,
+                    activation=tf.keras.activations.relu,
+                ),
+                tf.keras.layers.Flatten(),
+                tf.keras.layers.Dense(filters, activation=tf.keras.activations.relu),
                 tf.keras.layers.Dense(
                     actions,
-                    activation=tf.keras.activations.softmax,
+                    activation=tf.keras.activations.linear,
                     name="output-layer",
                 ),
             ]
         )
         self.model.compile(
-            optimizer=tf.keras.optimizers.Adam(
-                learning_rate=learning_rate, clipnorm=1.0
-            ),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
             loss=tf.keras.losses.Huber(),
         )
         # Training model used for training, and not for taking actions. This would allow a batch update of the model policy.
@@ -131,12 +139,15 @@ class FramesState(collections.deque):
 print("Num GPUs Available: ", len(tf.config.list_physical_devices("GPU")))
 
 model = Model()
-try:
-    model.load_weights(model_file_name)
-except:
-    print("Model wasn't found in: {model_file_name}")
 
-atexit.register(lambda: model.save_weights(model_file_name))
+# load and save weights
+if load_weights:
+    try:
+        model.load_weights(model_file_name)
+    except:
+        print("Model wasn't found in: {model_file_name}")
+if save_weights:
+    atexit.register(lambda: model.save_weights(model_file_name))
 
 frames_state = FramesState(maxlen=frames_memory_length)
 
@@ -198,18 +209,18 @@ for episode in max_episodes_tqdm:
     if episode % running_reward_interval == 0:
         rewards.append(statistics.mean(episodes_reward))
 
+    # epsilon decay
+    if epsilon > 0 and total_frames > 10000:
+        epsilon -= epsilon_decay
+        if epsilon < epsilon_terminal_value:
+            epsilon = 0
+
     max_episodes_tqdm.set_postfix(
         episode=episode,
         reward=episode_reward,
         epsilon=epsilon,
         total_frames=total_frames,
     )
-
-    # epsilon decay
-    if epsilon > 0 and total_frames > 10000:
-        epsilon -= epsilon_decay
-        if epsilon < epsilon_terminal_value:
-            epsilon = 0
 
 # Plot Rewards Progression
 steps = np.array(range(0, len(rewards), 1))
