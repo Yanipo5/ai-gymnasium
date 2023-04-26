@@ -17,7 +17,7 @@ kernel_size = (4, 4)
 strides = (2, 2)
 frames_to_skip = 4
 frames_memory_length = 4
-max_episodes = 500
+max_episodes = 100
 episodes_learning_batch = 64
 epsilon = 1
 epsilon_decay = 1 / (max_episodes * 0.8)
@@ -39,9 +39,9 @@ save_weights = True
 running_reward_interval = 16
 
 # Demo
-# max_episodes = 100
-# epsilon = 0
-# render_mode = "human"
+max_episodes = 1
+epsilon = 0
+render_mode = "human"
 # train_model = False
 # load_weights = False
 # save_weights = False
@@ -55,12 +55,10 @@ class FramesState(collections.deque):
     def __init__(self, maxlen=frames_memory_length):
         super().__init__(maxlen=maxlen)
 
-    def append(self, observation: list[list[int]], reward):
+    def add_frame(self, frame: list[list[int]], reward):
         """Reduce the image center to 80x80 frame"""
-        cropped_observation = observation[33:-17]
-        img_resized = resize(
-            cropped_observation, output_shape=(80, 80), anti_aliasing=True
-        )
+        cropped_frame = frame[33:-17]
+        img_resized = resize(cropped_frame, output_shape=(80, 80), anti_aliasing=True)
         super().append(img_resized)
         self.reward += reward
 
@@ -82,6 +80,10 @@ class FramesState(collections.deque):
 
     def copy(self):
         return [self[0].copy(), self[1].copy(), self[2].copy(), self[3].copy()]
+
+    def clear(self):
+        self.reward = 0
+        super().clear()
 
     def getTensor(self) -> tf.Tensor:
         return tf.expand_dims(self.copy(), axis=0)
@@ -172,7 +174,7 @@ class Model(tf.keras.Sequential):
 
         next_states_tensor = Model.get_state_tensor(reply_history.next_states)
         predicated_next_q_values = self.target_model.predict(
-            next_states_tensor, batch_size=32
+            next_states_tensor, batch_size=32, verbose="0"
         )
 
         masks = tf.one_hot(
@@ -189,9 +191,7 @@ class Model(tf.keras.Sequential):
         )
 
         self.training_model.fit(
-            current_states_tensor,
-            updated_q_values,
-            batch_size=32,
+            current_states_tensor, updated_q_values, batch_size=32, verbose="0"
         )
 
     def update_weights(self):
@@ -241,7 +241,7 @@ for episode in max_episodes_tqdm:
     prev_frames.clear()
     frame, info = env.reset()
 
-    current_frames.append(frame, 0)
+    current_frames.add_frame(frame, 0)
     action = 1  # fire the ball
     done = False
     episode_reward = 0
@@ -254,7 +254,7 @@ for episode in max_episodes_tqdm:
         if step % frames_to_skip != 0:
             frame, reward, terminated, truncated, info = env.step(1)
             done = terminated or truncated
-            current_frames.append(frame, reward)
+            current_frames.add_frame(frame, reward)
             episode_reward += reward
             continue
 
@@ -278,7 +278,7 @@ for episode in max_episodes_tqdm:
         current_frames.clear()
         frame, reward, terminated, truncated, info = env.step(action)
         done = terminated or truncated
-        current_frames.append(frame, reward)
+        current_frames.add_frame(frame, reward)
         episode_reward += reward
 
     # Print post episode
