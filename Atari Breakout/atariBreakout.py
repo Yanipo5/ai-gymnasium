@@ -12,12 +12,12 @@ from typing import Any
 
 # Hyperparameters
 filters = 32
-actions = 4
+actions_num = 4
 kernel_size = (4, 4)
 strides = (2, 2)
 frames_to_skip = 4
-frames_memory_length = 2
-max_episodes = 5000
+frames_memory_length = 4
+max_episodes = 500
 episodes_learning_batch = 64
 epsilon = 1
 epsilon_decay = 1 / (max_episodes * 0.8)
@@ -32,30 +32,100 @@ repeat_action_probability = 0
 obs_type = "grayscale"
 model_file_name = os.path.dirname(__file__) + "/model"
 train_model = True
+load_weights = True
+save_weights = True
 
 # Plot Params
 running_reward_interval = 16
 
 # Demo
-max_episodes = 30
-epsilon = 0
+# max_episodes = 100
+# epsilon = 0
 # render_mode = "human"
-train_model = False
-load_weights = False
-save_weights = False
+# train_model = False
+# load_weights = False
+# save_weights = False
+
+
+class FramesState(collections.deque):
+    """Stores a series of frames"""
+
+    reward: float = 0
+
+    def __init__(self, maxlen=frames_memory_length):
+        super().__init__(maxlen=maxlen)
+
+    def append(self, observation: list[list[int]], reward):
+        """Reduce the image center to 80x80 frame"""
+        cropped_observation = observation[33:-17]
+        img_resized = resize(
+            cropped_observation, output_shape=(80, 80), anti_aliasing=True
+        )
+        super().append(img_resized)
+        self.reward += reward
+
+    def reset(self):
+        self.clear()
+        super().append(np.zeros((80, 80)))
+        super().append(np.zeros((80, 80)))
+        super().append(np.zeros((80, 80)))
+        super().append(np.zeros((80, 80)))
+        self.reward = 0
+
+    def copyFromFrame(self, framesState):
+        # TODO fix rewards update
+        super().append(framesState[0])
+        super().append(framesState[1])
+        super().append(framesState[2])
+        super().append(framesState[3])
+        self.reward = framesState.reward
+
+    def copy(self):
+        return [self[0].copy(), self[1].copy(), self[2].copy(), self[3].copy()]
+
+    def getTensor(self) -> tf.Tensor:
+        return tf.expand_dims(self.copy(), axis=0)
+
+
+class FrameHistory:
+    """This calss stores the history of frames.
+    Used for Batch update of the model"""
+
+    current_states: list[FramesState] = []
+    actions: list[int] = []
+    rewards: list[float] = []
+    next_states: list[FramesState] = []
+
+    def __init__(self):
+        pass
+
+    def collect(self, current_state, action, reward, next_state):
+        self.current_states.append(current_state.copy())
+        self.actions.append(action)
+        self.rewards.append(reward)
+        self.next_states.append(next_state.copy())
+
+    def clear(self):
+        self.current_states.clear()
+        self.actions.clear()
+        self.rewards.clear()
+        self.next_states.clear()
 
 
 class Model(tf.keras.Sequential):
+    """Deep Q-Learning algorithem, updates a trainng model on each batch.
+    Train the target model periodically"""
+
     def __init__(self):
         super().__init__()
 
         # Make Sequenctial-visual model accepts n frames sequence
-        self.model = tf.keras.Sequential(
+        self.training_model = tf.keras.Sequential(
             [
                 tf.keras.layers.ConvLSTM2D(
                     filters,
                     kernel_size=8,
-                    input_shape=(2, 80, 80, 1),
+                    input_shape=(4, 80, 80, 1),
                     padding="same",
                     strides=4,
                 ),
@@ -74,65 +144,62 @@ class Model(tf.keras.Sequential):
                 tf.keras.layers.Flatten(),
                 tf.keras.layers.Dense(filters, activation=tf.keras.activations.relu),
                 tf.keras.layers.Dense(
-                    actions,
+                    actions_num,
                     activation=tf.keras.activations.linear,
                     name="output-layer",
                 ),
             ]
         )
-        self.model.compile(
+        self.training_model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
             loss=tf.keras.losses.Huber(),
         )
         # Training model used for training, and not for taking actions. This would allow a batch update of the model policy.
-        self.clone = tf.keras.models.clone_model(self.model)
+        self.target_model = tf.keras.models.clone_model(self.training_model)
 
-        self.model.summary()
+        self.training_model.summary()
 
     def __call__(self, inputs, training=None, mask=None):
-        return self.model(inputs)
+        return self.training_model(inputs)
 
-    @tf.function
-    def train(self, reward, time_series: tf.Tensor):
-        # Calculate expected Q value based on the stable model
-        stable_action_probs = self.clone(time_series)
-        stable_q_action = tf.reduce_max(stable_action_probs, axis=1)
-        expected_stable_reward = reward + gamma * stable_q_action
+    def train(self, reply_history: FrameHistory):
+        """Train the training model with the observations"""
+        # Deep Q-Learning Algorithem
+        #   1. Predict future Q values based on next_state
+        #   2. Mask actions * observed rewards
+        #   3. Calculate updated q values based on the action taken
+        #   4. Fit the model based on the taken observation -> [action] = new_q_value
 
-        # Calculate loss gradients
-        with tf.GradientTape() as tape:
-            # Train the model with the state
-            action_probs = self.model(time_series)
-            q_action = tf.reduce_max(action_probs, axis=1)
-            loss = self.model.loss(expected_stable_reward, q_action)  # type: ignore
+        next_states_tensor = Model.get_state_tensor(reply_history.next_states)
+        predicated_next_q_values = self.target_model.predict(
+            next_states_tensor, batch_size=32
+        )
 
-        # Backpropagation
-        grads = tape.gradient(loss, self.model.trainable_variables)
-        self.model.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+        masks = tf.one_hot(
+            reply_history.actions, actions_num, dtype=tf.float32, name="masks"
+        )
+        rewards = tf.constant(reply_history.rewards, dtype=tf.float32, name="rewards")
+        rewards = tf.reshape(rewards, shape=(len(rewards), 1))
+        reward_mask = tf.multiply(masks, rewards, name="reward_mask")
+
+        updated_q_values = tf.add(reward_mask, gamma * predicated_next_q_values)
+
+        current_states_tensor = tf.convert_to_tensor(
+            reply_history.current_states, dtype=tf.float32, name="current_states_tensor"
+        )
+
+        self.training_model.fit(
+            current_states_tensor,
+            updated_q_values,
+            batch_size=32,
+        )
 
     def update_weights(self):
-        self.model.set_weights(self.clone.get_weights())
+        self.training_model.set_weights(self.target_model.get_weights())
 
-
-class FramesState(collections.deque):
-    def __init__(self, maxlen=frames_memory_length):
-        super().__init__(maxlen=maxlen)
-
-    def addFrame(self, observation):
-        """Reduce the image center to 80x80 frame"""
-        cropped_observation = observation[33:-17]
-        img_resized = resize(
-            cropped_observation, output_shape=(80, 80), anti_aliasing=True
-        )
-        self.append(img_resized)
-
-    def reset(self):
-        self.clear()
-        self.append(np.zeros((80, 80)))
-        self.append(np.zeros((80, 80)))
-
-    def getTensor(self) -> tf.Tensor:
-        return tf.expand_dims([self[0], self[1]], axis=0)
+    @staticmethod
+    def get_state_tensor(state):
+        return map(lambda ns: tf.expand_dims(ns, axis=0), state)
 
 
 # Main
@@ -149,7 +216,10 @@ if load_weights:
 if save_weights:
     atexit.register(lambda: model.save_weights(model_file_name))
 
-frames_state = FramesState(maxlen=frames_memory_length)
+current_frames = FramesState(maxlen=frames_memory_length)
+prev_frames = FramesState(maxlen=frames_memory_length)
+
+frames_history = FrameHistory()
 
 env = gym.make(
     env_name,
@@ -160,49 +230,56 @@ env = gym.make(
 
 total_frames = 0
 episodes_reward: collections.deque[int] = collections.deque(
-    maxlen=running_reward_interval
+    maxlen=running_reward_interval,
 )
 rewards: list[float] = []
 
-# Training Loop (episode, frame)
+# Training episode loop
 max_episodes_tqdm = tqdm.trange(max_episodes)
 for episode in max_episodes_tqdm:
-    env.reset()
-    frames_state.reset()
+    current_frames.clear()
+    prev_frames.clear()
+    frame, info = env.reset()
+
+    current_frames.append(frame, 0)
+    action = 1  # fire the ball
     done = False
     episode_reward = 0
     step = 0
 
+    # Training frames Loop
     while done != True:
         total_frames += 1
         step += 1
         if step % frames_to_skip != 0:
-            observation, reward, terminated, truncated, info = env.step(1)
-            if reward > 0:
-                model.train(reward=reward, time_series=frames_state.getTensor())
-                episode_reward += reward
+            frame, reward, terminated, truncated, info = env.step(1)
+            done = terminated or truncated
+            current_frames.append(frame, reward)
+            episode_reward += reward
             continue
+
+        # Collect the experience into batch, and prepare for next step
+        if len(prev_frames) > 0:
+            frames_history.collect(
+                prev_frames, action, prev_frames.reward, current_frames
+            )
+        prev_frames.clear()
+        prev_frames.copyFromFrame(current_frames)
 
         # epsilon-greedy selection
         if epsilon > 0 and np.random.random() < epsilon:
             action = env.action_space.sample()
         else:
-            time_series = frames_state.getTensor()
-            action_probs: Any = model(time_series)
+            time_series = current_frames.getTensor()
+            action_probs: Any = model(time_series, training=False)
             action = tf.argmax(action_probs[0]).numpy()
 
-        observation, reward, terminated, truncated, info = env.step(action)
+        # Take action and prepare next series
+        current_frames.clear()
+        frame, reward, terminated, truncated, info = env.step(action)
         done = terminated or truncated
+        current_frames.append(frame, reward)
         episode_reward += reward
-
-        if train_model:
-            model.train(reward=reward, time_series=frames_state.getTensor())
-
-        # Prepare next step state
-        frames_state.addFrame(observation)
-
-        if episode > 1 and episode % episodes_learning_batch == 0:
-            model.update_weights()
 
     # Print post episode
     episodes_reward.append(int(episode_reward))
@@ -210,10 +287,16 @@ for episode in max_episodes_tqdm:
         rewards.append(statistics.mean(episodes_reward))
 
     # epsilon decay
-    if epsilon > 0 and total_frames > 10000:
+    if epsilon > 0:
         epsilon -= epsilon_decay
         if epsilon < epsilon_terminal_value:
             epsilon = 0
+
+    if train_model and episode > 0 and episode % 20 == 0:
+        model.train(frames_history)
+        frames_history.clear()
+        if episode > 0 and episode % 40 == 0:
+            model.update_weights()
 
     max_episodes_tqdm.set_postfix(
         episode=episode,
