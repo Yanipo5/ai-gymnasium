@@ -17,7 +17,7 @@ kernel_size = (4, 4)
 strides = (2, 2)
 frames_to_skip = 4
 frames_memory_length = 4
-max_episodes = 21
+max_episodes = 200
 epsilon = 1
 epsilon_decay = 1 / (max_episodes * 0.8)
 epsilon_terminal_value = 0.01
@@ -40,12 +40,12 @@ save_weights = True
 running_reward_interval = 16
 
 # Demo
-# max_episodes = 1
-# epsilon = 0
-# render_mode = "human"
+max_episodes = 1
+epsilon = 0
+render_mode = "human"
 # train_model = False
-load_weights = False
-save_weights = False
+# load_weights = False
+# save_weights = False
 
 
 class FramesState(collections.deque):
@@ -162,9 +162,6 @@ class Model(tf.keras.Sequential):
 
         self.training_model.summary()
 
-    def __call__(self, inputs, training=None, mask=None):
-        return self.training_model(inputs)
-
     def get_action(self, frames_state: FramesState):
         time_series = frames_state.getTensor()
         action = self._get_action(time_series)
@@ -173,7 +170,7 @@ class Model(tf.keras.Sequential):
     @tf.function
     def _get_action(self, frames_state_tensor):
         # Inner @tf.function for increased performence
-        action_probs = self(frames_state_tensor, training=False)
+        action_probs = self.training_model(frames_state_tensor, training=False)
         action = tf.argmax(action_probs, axis=1)
         return action[0]
 
@@ -187,7 +184,7 @@ class Model(tf.keras.Sequential):
 
         next_states_tensor = Model.get_state_tensor(reply_history.next_states)
         predicated_next_q_values = self.target_model.predict(
-            next_states_tensor, verbose="0"
+            next_states_tensor, verbose="1"
         )
 
         masks = tf.one_hot(
@@ -203,7 +200,7 @@ class Model(tf.keras.Sequential):
             reply_history.current_states, dtype=tf.float32, name="current_states_tensor"
         )
 
-        self.training_model.fit(current_states_tensor, updated_q_values, verbose="0")
+        self.training_model.fit(current_states_tensor, updated_q_values, verbose="1")
 
     def update_weights(self):
         self.target_model.set_weights(self.training_model.get_weights())
