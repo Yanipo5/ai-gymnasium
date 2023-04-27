@@ -17,14 +17,14 @@ kernel_size = (4, 4)
 strides = (2, 2)
 frames_to_skip = 4
 frames_memory_length = 4
-max_episodes = 100
-episodes_learning_batch = 64
+max_episodes = 21
 epsilon = 1
 epsilon_decay = 1 / (max_episodes * 0.8)
 epsilon_terminal_value = 0.01
 learning_rate = 1e-3
 gamma = 0.99  # Discount factor for past rewards
 end_game_reward_shape = -0.5
+train_episodes_interval = 20
 
 # Env Params
 env_name = "ALE/Breakout-v5"
@@ -40,12 +40,12 @@ save_weights = True
 running_reward_interval = 16
 
 # Demo
-# max_episodes = 2
+# max_episodes = 1
 # epsilon = 0
 # render_mode = "human"
 # train_model = False
-# load_weights = False
-# save_weights = False
+load_weights = False
+save_weights = False
 
 
 class FramesState(collections.deque):
@@ -165,6 +165,18 @@ class Model(tf.keras.Sequential):
     def __call__(self, inputs, training=None, mask=None):
         return self.training_model(inputs)
 
+    def get_action(self, frames_state: FramesState):
+        time_series = frames_state.getTensor()
+        action = self._get_action(time_series)
+        return action.numpy()  # type: ignore
+
+    @tf.function
+    def _get_action(self, frames_state_tensor):
+        # Inner @tf.function for increased performence
+        action_probs = self(frames_state_tensor, training=False)
+        action = tf.argmax(action_probs, axis=1)
+        return action[0]
+
     def train(self, reply_history: FrameHistory):
         """Train the training model with the observations"""
         # Deep Q-Learning Algorithem
@@ -175,7 +187,7 @@ class Model(tf.keras.Sequential):
 
         next_states_tensor = Model.get_state_tensor(reply_history.next_states)
         predicated_next_q_values = self.target_model.predict(
-            next_states_tensor, batch_size=32, verbose="0"
+            next_states_tensor, verbose="0"
         )
 
         masks = tf.one_hot(
@@ -191,12 +203,20 @@ class Model(tf.keras.Sequential):
             reply_history.current_states, dtype=tf.float32, name="current_states_tensor"
         )
 
-        self.training_model.fit(
-            current_states_tensor, updated_q_values, batch_size=32, verbose="0"
-        )
+        self.training_model.fit(current_states_tensor, updated_q_values, verbose="0")
 
     def update_weights(self):
-        self.training_model.set_weights(self.target_model.get_weights())
+        self.target_model.set_weights(self.training_model.get_weights())
+
+    def load_weights(self, file_name):
+        try:
+            self.training_model.load_weights(file_name)
+            self.target_model.load_weights(file_name)
+        except:
+            print(f"Loading model wasn't found in: {model_file_name}")
+
+    def save_weights(self, file_name):
+        self.target_model.save_weights(file_name)
 
     @staticmethod
     def get_state_tensor(state):
@@ -210,12 +230,9 @@ model = Model()
 
 # load and save weights
 if load_weights:
-    try:
-        model.load_weights(model_file_name)
-    except:
-        print(f"Model wasn't found in: {model_file_name}")
+    model.load_weights(model_file_name)
 if save_weights:
-    atexit.register(lambda: model.save_weights(model_file_name))
+    atexit.register(model.save_weights, model_file_name)
 
 current_frames = FramesState(maxlen=frames_memory_length)
 prev_frames = FramesState(maxlen=frames_memory_length)
@@ -287,10 +304,7 @@ for episode in max_episodes_tqdm:
         if epsilon > 0 and np.random.random() < epsilon:
             action = env.action_space.sample()
         else:
-            time_series = current_frames.getTensor()
-            action_probs: Any = model(time_series, training=False)
-            action = tf.argmax(action_probs, axis=1)
-            action = action[0].numpy()
+            action = model.get_action(current_frames)
 
         # Take action and prepare next series
         current_frames.clear()
@@ -310,11 +324,11 @@ for episode in max_episodes_tqdm:
         if epsilon < epsilon_terminal_value:
             epsilon = 0
 
-    if train_model and episode > 0 and episode % 20 == 0:
+    if train_model and episode > 0 and episode % train_episodes_interval == 0:
         model.train(frames_history)
+        model.update_weights()
         frames_history.clear()
-        if episode > 0 and episode % 40 == 0:
-            model.update_weights()
+        model.save_weights(model_file_name)
 
     max_episodes_tqdm.set_postfix(
         episode=episode,
