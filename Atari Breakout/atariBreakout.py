@@ -24,6 +24,7 @@ epsilon_decay = 1 / (max_episodes * 0.8)
 epsilon_terminal_value = 0.01
 learning_rate = 1e-3
 gamma = 0.99  # Discount factor for past rewards
+end_game_reward_shape = -0.5
 
 # Env Params
 env_name = "ALE/Breakout-v5"
@@ -39,9 +40,9 @@ save_weights = True
 running_reward_interval = 16
 
 # Demo
-max_episodes = 1
-epsilon = 0
-render_mode = "human"
+# max_episodes = 2
+# epsilon = 0
+# render_mode = "human"
 # train_model = False
 # load_weights = False
 # save_weights = False
@@ -55,7 +56,7 @@ class FramesState(collections.deque):
     def __init__(self, maxlen=frames_memory_length):
         super().__init__(maxlen=maxlen)
 
-    def add_frame(self, frame: list[list[int]], reward):
+    def add_frame(self, frame: np.ndarray, reward):
         """Reduce the image center to 80x80 frame"""
         cropped_frame = frame[33:-17]
         img_resized = resize(cropped_frame, output_shape=(80, 80), anti_aliasing=True)
@@ -212,7 +213,7 @@ if load_weights:
     try:
         model.load_weights(model_file_name)
     except:
-        print("Model wasn't found in: {model_file_name}")
+        print(f"Model wasn't found in: {model_file_name}")
 if save_weights:
     atexit.register(lambda: model.save_weights(model_file_name))
 
@@ -252,10 +253,26 @@ for episode in max_episodes_tqdm:
         total_frames += 1
         step += 1
         if step % frames_to_skip != 0:
+            # Interact with the environemnt (no action)
             frame, reward, terminated, truncated, info = env.step(1)
             done = terminated or truncated
-            current_frames.add_frame(frame, reward)
             episode_reward += reward
+
+            if done and end_game_reward_shape is not False:
+                # Reward shaping, if the game is done, reduce the reward (less then 1, incase the game over due to braking the last break)
+                reward += end_game_reward_shape
+
+            current_frames.add_frame(frame, reward)
+
+            if done is False:
+                continue
+            else:
+                # Collect the end game observation (no additional actions, and rewards)
+                while len(current_frames) < frames_memory_length:
+                    current_frames.add_frame(frame, 0)
+                frames_history.collect(
+                    prev_frames, action, current_frames.reward, current_frames
+                )
             continue
 
         # Collect the experience into batch, and prepare for next step
@@ -272,7 +289,8 @@ for episode in max_episodes_tqdm:
         else:
             time_series = current_frames.getTensor()
             action_probs: Any = model(time_series, training=False)
-            action = tf.argmax(action_probs[0]).numpy()
+            action = tf.argmax(action_probs, axis=1)
+            action = action[0].numpy()
 
         # Take action and prepare next series
         current_frames.clear()
