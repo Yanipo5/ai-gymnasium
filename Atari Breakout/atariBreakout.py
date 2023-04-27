@@ -17,9 +17,9 @@ kernel_size = (4, 4)
 strides = (2, 2)
 frames_to_skip = 4
 frames_memory_length = 4
-max_episodes = 200
+max_episodes = 1000
 epsilon = 1
-epsilon_decay = 1 / (max_episodes * 0.8)
+epsilon_decay = 1 / (max_episodes * 0.99)
 epsilon_terminal_value = 0.01
 learning_rate = 1e-3
 gamma = 0.99  # Discount factor for past rewards
@@ -40,9 +40,9 @@ save_weights = True
 running_reward_interval = 16
 
 # Demo
-max_episodes = 1
-epsilon = 0
-render_mode = "human"
+# max_episodes = 1
+# epsilon = 0
+# render_mode = "human"
 # train_model = False
 # load_weights = False
 # save_weights = False
@@ -65,10 +65,8 @@ class FramesState(collections.deque):
 
     def reset(self):
         self.clear()
-        super().append(np.zeros((80, 80)))
-        super().append(np.zeros((80, 80)))
-        super().append(np.zeros((80, 80)))
-        super().append(np.zeros((80, 80)))
+        while int(self.maxlen or 0) < frames_memory_length:
+            super().append(np.zeros((80, 80), dtype=np.float32))
         self.reward = 0
 
     def copyFromFrame(self, framesState):
@@ -126,26 +124,26 @@ class Model(tf.keras.Sequential):
         self.training_model = tf.keras.Sequential(
             [
                 tf.keras.layers.ConvLSTM2D(
-                    filters,
+                    32,
                     kernel_size=8,
                     input_shape=(4, 80, 80, 1),
                     padding="same",
                     strides=4,
                 ),
                 tf.keras.layers.Conv2D(
-                    filters,
+                    64,
                     kernel_size=4,
                     strides=2,
                     activation=tf.keras.activations.relu,
                 ),
                 tf.keras.layers.Conv2D(
-                    filters,
+                    64,
                     kernel_size=3,
                     strides=1,
                     activation=tf.keras.activations.relu,
                 ),
                 tf.keras.layers.Flatten(),
-                tf.keras.layers.Dense(filters, activation=tf.keras.activations.relu),
+                tf.keras.layers.Dense(512, activation=tf.keras.activations.relu),
                 tf.keras.layers.Dense(
                     actions_num,
                     activation=tf.keras.activations.linear,
@@ -183,9 +181,7 @@ class Model(tf.keras.Sequential):
         #   4. Fit the model based on the taken observation -> [action] = new_q_value
 
         next_states_tensor = Model.get_state_tensor(reply_history.next_states)
-        predicated_next_q_values = self.target_model.predict(
-            next_states_tensor, verbose="1"
-        )
+        predicated_next_q_values = self.target_model.predict(next_states_tensor)
 
         masks = tf.one_hot(
             reply_history.actions, actions_num, dtype=tf.float32, name="masks"
@@ -200,7 +196,7 @@ class Model(tf.keras.Sequential):
             reply_history.current_states, dtype=tf.float32, name="current_states_tensor"
         )
 
-        self.training_model.fit(current_states_tensor, updated_q_values, verbose="1")
+        self.training_model.fit(current_states_tensor, updated_q_values)
 
     def update_weights(self):
         self.target_model.set_weights(self.training_model.get_weights())
@@ -272,7 +268,7 @@ for episode in max_episodes_tqdm:
             done = terminated or truncated
             episode_reward += reward
 
-            if done and end_game_reward_shape is not False:
+            if done and end_game_reward_shape is not None:
                 # Reward shaping, if the game is done, reduce the reward (less then 1, incase the game over due to braking the last break)
                 reward += end_game_reward_shape
 
@@ -307,6 +303,9 @@ for episode in max_episodes_tqdm:
         current_frames.clear()
         frame, reward, terminated, truncated, info = env.step(action)
         done = terminated or truncated
+        if done and end_game_reward_shape is not None:
+            # Reward shaping, if the game is done, reduce the reward (less then 1, incase the game over due to braking the last break)
+            reward += end_game_reward_shape
         current_frames.add_frame(frame, reward)
         episode_reward += reward
 
