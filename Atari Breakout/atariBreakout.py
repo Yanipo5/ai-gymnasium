@@ -19,7 +19,8 @@ frames_to_skip = 4
 frames_memory_length = 4
 max_episodes = 1000
 epsilon = 1
-epsilon_decay = 1 / (max_episodes * 0.99)
+epsilon_random_episodes = max_episodes * 0.5
+epsilon_decay = 1 / ((max_episodes - epsilon_random_episodes) * 0.99)
 epsilon_terminal_value = 0.01
 learning_rate = 1e-3
 gamma = 0.99  # Discount factor for past rewards
@@ -40,9 +41,9 @@ save_weights = True
 running_reward_interval = 16
 
 # Demo
-# max_episodes = 1
-# epsilon = 0
-# render_mode = "human"
+max_episodes = 1
+epsilon = 0
+render_mode = "human"
 # train_model = False
 # load_weights = False
 # save_weights = False
@@ -315,7 +316,7 @@ for episode in max_episodes_tqdm:
         rewards.append(statistics.mean(episodes_reward))
 
     # epsilon decay
-    if epsilon > 0:
+    if episode > epsilon_random_episodes and epsilon > 0:
         epsilon -= epsilon_decay
         if epsilon < epsilon_terminal_value:
             epsilon = 0
