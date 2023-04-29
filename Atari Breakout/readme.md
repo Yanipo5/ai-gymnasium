@@ -7,8 +7,9 @@ I later learned that DeepMind ren around 45 million frames to solve Atari Breako
 
 Despite the failure, I learned a lot from this experience. I realized that instead of pursuing Breakout, which I don't think is feasible for a DQN network with a single thread to solve in reasonable time. Instead, I aim try to Atari Pong with a Rainbow Network. The Rainbow Network is an extension of the DQN architecture that incorporates several techniques such as dueling networks, prioritized experience replay, and distributional reinforcement learning [3].
 
-![image](https://user-images.githubusercontent.com/29729128/235302351-e887aad8-4aef-4c55-ac4e-96242051947d.png)
-Figure 1: Comparing Deepmind Atari Breakout & Pong learning time (16 threads)
+![image](https://user-images.githubusercontent.com/29729128/235302481-315f9624-f6a9-45d8-bb8e-398b55b6b1ee.png)
+
+Figure 1: Comparing Deepmind Atari Breakout & Pong learning time (16 threads)[2]
 
 
 ![image](https://user-images.githubusercontent.com/29729128/235301809-0e869d3d-7a83-4464-9708-4918f8a6fa08.png) [3]
