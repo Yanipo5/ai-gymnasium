@@ -16,9 +16,9 @@ According to Deepmind chart Pong is solvable within 7M frames, with a steeper le
 I leave this code here a reference for future Pong work.
 * Altough the experience is realy, this content was assisted with a Generative model (chartGPT).
 
-1. (Human-level control through deep reinforcement
-learning)[https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf]
-2. (Asynchronous Methods for Deep Reinforcement Learning
-)[https://arxiv.org/pdf/1602.01783.pdf]
-3. (Rainbow: Combining Improvements in Deep Reinforcement Learning
-)[https://arxiv.org/pdf/1710.02298.pdf]
+1. [Human-level control through deep reinforcement
+learning](https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf)
+2. [Asynchronous Methods for Deep Reinforcement Learning
+](https://arxiv.org/pdf/1602.01783.pdf)
+3. [Rainbow: Combining Improvements in Deep Reinforcement Learning
+](https://arxiv.org/pdf/1710.02298.pdf)
