@@ -9,7 +9,7 @@ Despite the failure, I learned a lot from this experience. I realized that inste
 
 ![image](https://user-images.githubusercontent.com/29729128/235301809-0e869d3d-7a83-4464-9708-4918f8a6fa08.png) [3]
 
-Figure 1: Comaring Deepmind Atari Breakout & Pong learning curve (the first x-tick is at 50M frames)
+Figure 1: Comaring Deepmind Atari Breakout & Pong learning curve (the first x-tick is at 50M frames) DQN - Gray, Rainbow - white
 
 According to Deepmind chart Pong is solvable within 7M frames, with a steeper learning curve that should show some results within 1M frames, which should take my computer running on 1 thread 2 hours. I also assumed that I could tune the hyperparameters more specifically to Pong, such as setting a faster learning rate and learning based on black and white frames instead of grayscale. These should theoretically allow me to complete Pong with even faster time.
 
