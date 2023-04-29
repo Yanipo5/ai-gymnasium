@@ -9,6 +9,9 @@ import os
 import statistics
 from skimage.transform import resize
 from typing import Any
+import gc
+
+# import maths
 
 # Hyperparameters
 filters = 32
@@ -17,15 +20,18 @@ kernel_size = (4, 4)
 strides = (2, 2)
 frames_to_skip = 4
 frames_memory_length = 4
-max_episodes = 1000
+max_episodes = 500
 epsilon = 1
-epsilon_random_episodes = max_episodes * 0.5
-epsilon_decay = 1 / ((max_episodes - epsilon_random_episodes) * 0.99)
-epsilon_terminal_value = 0.01
+epsilon_random_episodes = max_episodes * 0.2
+epsilon_terminal_value = 0.05
+epsilon_decay = (epsilon - epsilon_terminal_value) / (
+    (max_episodes - epsilon_random_episodes) * 0.99
+)
+human_intuition_chance = 0.5
 learning_rate = 1e-3
 gamma = 0.99  # Discount factor for past rewards
 end_game_reward_shape = -0.5
-train_episodes_interval = 20
+trainning_epoche_episodes_len = 50
 
 # Env Params
 env_name = "ALE/Breakout-v5"
@@ -41,12 +47,21 @@ save_weights = True
 running_reward_interval = 16
 
 # Demo
-max_episodes = 1
-epsilon = 0
-render_mode = "human"
+# max_episodes = 1
+# render_mode = "human"
 # train_model = False
+# trainning_epoche_episodes_len = 10
 # load_weights = False
 # save_weights = False
+# learning_rate = 1e-1
+# epsilon = 0
+# epsilon_random_episodes = max_episodes * 0.2
+# running_reward_interval = 1
+# epsilon_decay = (epsilon - epsilon_terminal_value) / (
+#     (max_episodes - epsilon_random_episodes) * 0.99
+# )
+# trainning_epoche_episodes_len = 10
+# human_intuition_chance = 0.8
 
 
 class FramesState(collections.deque):
@@ -60,8 +75,11 @@ class FramesState(collections.deque):
     def add_frame(self, frame: np.ndarray, reward):
         """Reduce the image center to 80x80 frame"""
         cropped_frame = frame[33:-17]
-        img_resized = resize(cropped_frame, output_shape=(80, 80), anti_aliasing=True)
-        super().append(img_resized)
+        img_resized: np.ndarray[Any, Any] = resize(
+            cropped_frame, output_shape=(80, 80), anti_aliasing=True
+        )
+        black_white = np.where(img_resized > 0.01, 255, 0)
+        super().append(black_white)
         self.reward += reward
 
     def reset(self):
@@ -125,26 +143,20 @@ class Model(tf.keras.Sequential):
         self.training_model = tf.keras.Sequential(
             [
                 tf.keras.layers.ConvLSTM2D(
-                    32,
+                    16,
                     kernel_size=8,
                     input_shape=(4, 80, 80, 1),
                     padding="same",
                     strides=4,
                 ),
                 tf.keras.layers.Conv2D(
-                    64,
+                    32,
                     kernel_size=4,
                     strides=2,
                     activation=tf.keras.activations.relu,
                 ),
-                tf.keras.layers.Conv2D(
-                    64,
-                    kernel_size=3,
-                    strides=1,
-                    activation=tf.keras.activations.relu,
-                ),
                 tf.keras.layers.Flatten(),
-                tf.keras.layers.Dense(512, activation=tf.keras.activations.relu),
+                tf.keras.layers.Dense(256, activation=tf.keras.activations.relu),
                 tf.keras.layers.Dense(
                     actions_num,
                     activation=tf.keras.activations.linear,
@@ -182,6 +194,7 @@ class Model(tf.keras.Sequential):
         #   4. Fit the model based on the taken observation -> [action] = new_q_value
 
         next_states_tensor = Model.get_state_tensor(reply_history.next_states)
+        # next_states_sequence = FramesTensorSequence(reply_history.next_states)
         predicated_next_q_values = self.target_model.predict(next_states_tensor)
 
         masks = tf.one_hot(
@@ -198,8 +211,6 @@ class Model(tf.keras.Sequential):
         )
 
         self.training_model.fit(current_states_tensor, updated_q_values)
-
-    def update_weights(self):
         self.target_model.set_weights(self.training_model.get_weights())
 
     def load_weights(self, file_name):
@@ -215,6 +226,44 @@ class Model(tf.keras.Sequential):
     @staticmethod
     def get_state_tensor(state):
         return map(lambda ns: tf.expand_dims(ns, axis=0), state)
+
+
+def get_action_by_simple_human_intuition(framesState: FramesState) -> int:
+    """This strategy would achive a basic policy for the agent to train on.
+    This policy achives an averange 10 rewards"""
+    last_frame = framesState[-1]
+    bar_length = 9
+
+    # find the bar x position
+    last_row = last_frame[-1][5:-5]
+    bar_x_position = 0
+    for i in range(0, len(last_row)):
+        if last_row[i] > 0:
+            bar_x_position = i
+            break
+
+    # align to middle of the bar
+    bar_x_position += bar_length / 2
+
+    # find the ball x position
+    last_rows = last_frame[40:-2]
+    ball_x_position = 0
+    for i in range(0, len(last_rows)):
+        row = last_rows[i][5:-5]
+        for j in range(0, len(row)):
+            if row[j] > 0:
+                ball_x_position = j
+                break
+        if ball_x_position != 0:
+            break
+
+    # return
+    if abs(ball_x_position - bar_x_position) < bar_length / 2:
+        return 0
+    elif bar_x_position < ball_x_position:
+        return 2
+    else:
+        return 3
 
 
 # Main
@@ -238,8 +287,13 @@ env = gym.make(
     render_mode=render_mode,
     repeat_action_probability=repeat_action_probability,
     obs_type=obs_type,
+    mode=4,
+    disable_env_checker=True,
+    lives=1,
 )
 
+
+print(env.ale.lives())
 total_frames = 0
 episodes_reward: collections.deque[int] = collections.deque(
     maxlen=running_reward_interval,
@@ -295,8 +349,11 @@ for episode in max_episodes_tqdm:
         prev_frames.copyFromFrame(current_frames)
 
         # epsilon-greedy selection
-        if epsilon > 0 and np.random.random() < epsilon:
-            action = env.action_space.sample()
+        if np.random.random() < epsilon:
+            if np.random.random() < human_intuition_chance:
+                action = get_action_by_simple_human_intuition(current_frames)
+            else:
+                action = env.action_space.sample()
         else:
             action = model.get_action(current_frames)
 
@@ -316,16 +373,15 @@ for episode in max_episodes_tqdm:
         rewards.append(statistics.mean(episodes_reward))
 
     # epsilon decay
-    if episode > epsilon_random_episodes and epsilon > 0:
+    if episode > epsilon_random_episodes and epsilon > epsilon_terminal_value:
         epsilon -= epsilon_decay
-        if epsilon < epsilon_terminal_value:
-            epsilon = 0
 
-    if train_model and episode > 0 and episode % train_episodes_interval == 0:
+    if train_model and episode > 0 and episode % trainning_epoche_episodes_len == 0:
         model.train(frames_history)
-        model.update_weights()
         frames_history.clear()
-        model.save_weights(model_file_name)
+        gc.collect()
+        if save_weights:
+            model.save_weights(model_file_name)
 
     max_episodes_tqdm.set_postfix(
         episode=episode,
