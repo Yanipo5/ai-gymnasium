@@ -16,7 +16,7 @@ import gc
 
 # Hyperparameters
 actions_num = 4
-max_episodes = 5000
+max_episodes = 10_000
 epsilon = 1
 epsilon_terminal_value = 0.05
 epsilon_decay = 1e-5
